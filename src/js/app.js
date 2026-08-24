@@ -1018,6 +1018,8 @@ class App {
             };
 
             micChannel.onmessage = (pcmData) => {
+                // Drop mic audio while TTS is playing to prevent echo loop
+                if (this._isTTSPlaying) return;
                 micChunkCount++;
                 if (micChunkCount <= 3 || micChunkCount % 50 === 0) {
                     console.log(`[Two-way/Mic] Batch #${micChunkCount}, size:`, pcmData?.length || 0);
@@ -1064,16 +1066,25 @@ class App {
         this.remoteSonioxClient.onError = (error) => this._showToast(`Remote audio: ${error}`, 'error');
 
         this.localSonioxClient.onOriginal = (text, speaker) => {
-            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
+            if (this._isTTSPlaying) {
+                console.debug('[Two-way] local onOriginal skipped while TTS playing');
+                return;
+            }
             this.transcriptUI.addOriginalForDirection(text, speaker, 'me_to_remote');
         };
         this.localSonioxClient.onTranslation = (text) => {
-            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
+            if (this._isTTSPlaying) {
+                console.debug('[Two-way] local onTranslation skipped while TTS playing');
+                return;
+            }
             this.transcriptUI.addTranslationForDirection(text, 'me_to_remote');
             this._speakTwoWayIfEnabled(text, otherLanguage, 'me_to_remote');
         };
         this.localSonioxClient.onProvisional = (text, speaker) => {
-            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
+            if (this._isTTSPlaying) {
+                console.debug('[Two-way] local onProvisional skipped while TTS playing');
+                return;
+            }
             if (text) this.transcriptUI.setProvisionalForDirection(text, speaker, 'me_to_remote');
             else this.transcriptUI.clearProvisionalForDirection('me_to_remote');
         };
@@ -1086,6 +1097,9 @@ class App {
             ? this.ttsMeToRemoteEnabled
             : this.ttsRemoteToMeEnabled;
         if (!enabled || !text?.trim()) return;
+
+        console.debug('[Two-way] speak', direction, 'len:', text.length);
+
         edgeTTSRust.configure({
             voice: EDGE_VOICE_BY_LANG[language] || EDGE_VOICE_BY_LANG.en,
             speed: settingsManager.get().edge_tts_speed !== undefined ? settingsManager.get().edge_tts_speed : 20,

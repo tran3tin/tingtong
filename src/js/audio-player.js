@@ -108,6 +108,7 @@ class AudioPlayer {
             } else {
                 this._isPlaying = false;
                 this._currentSource = null;
+                this.onPlaybackStateChange?.(false);
             }
         };
     }
