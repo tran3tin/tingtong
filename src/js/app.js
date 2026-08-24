@@ -41,6 +41,7 @@ class App {
         this.twoWayDirection = 'one_way';
         this.ttsRemoteToMeEnabled = false; // Two-way: read remote→me translations
         this.ttsMeToRemoteEnabled = false; // Two-way: read me→remote translations
+        this._isTTSPlaying = false;
     }
 
     async init() {
@@ -68,6 +69,9 @@ class App {
 
         // Init audio player for TTS
         audioPlayer.init();
+        audioPlayer.onPlaybackStateChange = (isActive) => {
+            this._isTTSPlaying = isActive;
+        };
 
         // Wire TTS audio callbacks for providers that use audioPlayer
         for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS]) {
@@ -868,6 +872,7 @@ class App {
         const hintOneWay = document.getElementById('hint-direction-one-way');
         const hintTwoWay = document.getElementById('hint-direction-two-way');
         const sectionTwoWayLanguages = document.getElementById('section-two-way-languages');
+        const sectionOneWayLanguages = document.getElementById('section-one-way-languages');
         const sourceGroup = document.getElementById('audio-source-group')?.closest('.settings-section');
         const viewModeButton = document.getElementById('btn-view-mode');
         const oneWayTTSButton = document.getElementById('btn-tts');
@@ -876,6 +881,7 @@ class App {
         if (hintOneWay) hintOneWay.style.display = isTwoWay ? 'none' : '';
         if (hintTwoWay) hintTwoWay.style.display = isTwoWay ? '' : 'none';
         if (sectionTwoWayLanguages) sectionTwoWayLanguages.style.display = isTwoWay ? '' : 'none';
+        if (sectionOneWayLanguages) sectionOneWayLanguages.style.display = isTwoWay ? 'none' : '';
         if (sourceGroup) sourceGroup.style.display = isTwoWay ? 'none' : '';
         if (viewModeButton) viewModeButton.style.display = isTwoWay ? 'none' : '';
         if (oneWayTTSButton) oneWayTTSButton.style.display = isTwoWay ? 'none' : '';
@@ -975,7 +981,9 @@ class App {
         console.log('[App] Starting two-way call mode...');
         this._updateStatus('connecting');
         this.transcriptUI.setTwoWayMode(true);
-        this._showToast('Two-way mode: use headphones; route TTS to CABLE Input if needed.', 'success');
+        this._showToast(settings.two_way_mute_original_mic
+            ? 'Two-way mode: original mic route muted. Use CABLE Output as the call app microphone.'
+            : 'Two-way mode: use headphones; route TTS to CABLE Input if needed.', 'success');
 
         this.remoteSonioxClient = new SonioxClient();
         this.localSonioxClient = new SonioxClient();
@@ -1056,13 +1064,16 @@ class App {
         this.remoteSonioxClient.onError = (error) => this._showToast(`Remote audio: ${error}`, 'error');
 
         this.localSonioxClient.onOriginal = (text, speaker) => {
+            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
             this.transcriptUI.addOriginalForDirection(text, speaker, 'me_to_remote');
         };
         this.localSonioxClient.onTranslation = (text) => {
+            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
             this.transcriptUI.addTranslationForDirection(text, 'me_to_remote');
             this._speakTwoWayIfEnabled(text, otherLanguage, 'me_to_remote');
         };
         this.localSonioxClient.onProvisional = (text, speaker) => {
+            if (this._isTTSPlaying) return; // echo suppression: skip my own TTS playback
             if (text) this.transcriptUI.setProvisionalForDirection(text, speaker, 'me_to_remote');
             else this.transcriptUI.clearProvisionalForDirection('me_to_remote');
         };

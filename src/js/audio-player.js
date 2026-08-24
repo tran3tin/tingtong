@@ -12,6 +12,7 @@ class AudioPlayer {
         this._enabled = true;
         this._currentSource = null; // Currently playing AudioBufferSourceNode
         this._maxQueueSize = 10;    // Max buffers in queue before dropping old ones
+        this.onPlaybackStateChange = null; // (isActive: boolean) => void — two-way echo suppression
     }
 
     /**
@@ -77,6 +78,7 @@ class AudioPlayer {
     _scheduleNext() {
         if (this._queue.length === 0 || !this.audioContext) {
             this._isPlaying = false;
+            this.onPlaybackStateChange?.(false);
             return;
         }
 
@@ -98,6 +100,7 @@ class AudioPlayer {
         this._nextStartTime = startTime + buffer.duration;
         this._currentSource = source;
         this._isPlaying = true;
+        this.onPlaybackStateChange?.(true);
 
         source.onended = () => {
             if (this._queue.length > 0) {
