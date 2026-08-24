@@ -69,6 +69,23 @@
           <span class="tts-label">TTS</span>
         </button>
 
+        <div id="two-way-tts-controls" class="two-way-tts-controls" style="display:none">
+          <button id="btn-tts-remote-to-me" class="tts-action-btn" title="Read translations for me">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <path d="M9 10h6" />
+            </svg>
+            <span class="tts-label">TTS nghe</span>
+          </button>
+          <button id="btn-tts-me-to-remote" class="tts-action-btn" title="Read translations for the other person">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <path d="M8 10h4" /><path d="M14 8v4" /><path d="M16 10h1" />
+            </svg>
+            <span class="tts-label">TTS gửi</span>
+          </button>
+        </div>
+
         <div class="toolbar-group">
           <button id="btn-clear" class="icon-btn" title="Clear transcript">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -212,6 +229,61 @@
             </button>
           </div>
           <p class="hint">Get key at <a href="#" id="link-soniox">console.soniox.com</a></p>
+        </div>
+
+        <div class="settings-section">
+          <span class="field-label">Direction</span>
+          <div class="radio-group" id="translation-direction-group">
+            <label class="radio-option"><input type="radio" name="translation-direction" value="one_way" checked /><span class="radio-label">One-way</span></label>
+            <label class="radio-option"><input type="radio" name="translation-direction" value="two_way" /><span class="radio-label">Two-way call</span></label>
+          </div>
+          <p class="hint" id="hint-direction-one-way">Translate one selected audio source.</p>
+          <p class="hint" id="hint-direction-two-way" style="display:none">Call mode uses Soniox Cloud only: system audio → your language, microphone → other person's language.</p>
+        </div>
+
+        <div class="settings-section" id="section-two-way-languages" style="display:none">
+          <div class="field-row">
+            <div class="field">
+              <span class="field-label">My language</span>
+              <select id="select-my-language">
+                <option value="vi">Vietnamese</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="zh">Chinese</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="es">Spanish</option>
+                <option value="th">Thai</option>
+                <option value="id">Indonesian</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="field-label">Other person's language</span>
+              <select id="select-other-language">
+                <option value="en">English</option>
+                <option value="vi">Vietnamese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="zh">Chinese</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="es">Spanish</option>
+                <option value="th">Thai</option>
+                <option value="id">Indonesian</option>
+              </select>
+            </div>
+          </div>
+          <label class="checkbox-option" style="margin-top: 10px; display:none;">
+            <input type="checkbox" id="check-two-way-tts" />
+            <span class="checkbox-label">Speak translated audio in both directions</span>
+          </label>
+          <label class="checkbox-option" style="margin-top: 6px;">
+            <input type="checkbox" id="check-two-way-mute-original-mic" />
+            <span class="checkbox-label">Mute original mic route (reserved)</span>
+          </label>
+          <p class="hint">In Two-way mode, use the 2 TTS buttons on the overlay to choose who hears translated speech.</p>
+          <p class="hint warning-hint">Use headphones to avoid echo. To let the other person hear translation, install VB-Audio Virtual Cable, select CABLE Input as the TTS output, then choose CABLE Output as the microphone in Zoom/Meet/Discord/call app.</p>
         </div>
 
         <div class="settings-section">

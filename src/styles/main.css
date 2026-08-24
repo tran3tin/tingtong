@@ -203,6 +203,12 @@ body {
   background: rgba(99, 140, 255, 0.25);
 }
 
+.two-way-tts-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .tts-label {
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -595,6 +601,80 @@ body {
 /* Hide original text in seg-block when dual view (content rendered in panels) */
 .dual-view .seg-block {
   display: none;
+}
+
+/* Two-way transcript mode */
+.two-way-transcript-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.two-way-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+  overflow: hidden;
+}
+
+.two-way-panel-header {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.two-way-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.two-way-panel-body::-webkit-scrollbar {
+  width: 3px;
+}
+
+.two-way-panel-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.two-way-segment {
+  margin-bottom: 12px;
+}
+
+.two-way-original {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85em;
+  font-weight: 400;
+  line-height: 1.45;
+  margin-bottom: 3px;
+}
+
+.two-way-translation {
+  color: var(--transcript-font-color, var(--text-primary));
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.two-way-original.pending,
+.two-way-translation.pending,
+.two-way-empty {
+  color: rgba(255, 255, 255, 0.32);
+  font-style: italic;
+  font-weight: 400;
 }
 
 /* Translated text — primary white */

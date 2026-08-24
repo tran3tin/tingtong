@@ -29,7 +29,8 @@ pub fn run() {
         .manage(AudioState {
             system_audio: Mutex::new(SystemAudioCapture::new()),
             microphone: Mutex::new(MicCapture::new()),
-            active_receiver: Mutex::new(None),
+            system_forwarder: Mutex::new(None),
+            microphone_forwarder: Mutex::new(None),
         })
         .manage(LocalPipelineState {
             process: Mutex::new(None),
@@ -38,7 +39,11 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::audio::start_capture,
+            commands::audio::start_system_capture,
+            commands::audio::start_microphone_capture,
             commands::audio::stop_capture,
+            commands::audio::stop_system_capture,
+            commands::audio::stop_microphone_capture,
             commands::audio::check_permissions,
             commands::transcript::save_transcript,
             commands::transcript::open_transcript_dir,

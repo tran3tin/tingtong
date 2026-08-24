@@ -28,6 +28,16 @@ pub struct Settings {
     pub source_language: String,
     /// Target language: ISO 639-1 code
     pub target_language: String,
+    /// Translation direction: "one_way" | "two_way"
+    pub translation_direction: String,
+    /// User language for two-way mode
+    pub my_language: String,
+    /// Other party language for two-way mode
+    pub other_language: String,
+    /// Whether two-way TTS is enabled
+    pub two_way_tts_enabled: bool,
+    /// Whether to mute original mic route in two-way mode (reserved for later)
+    pub two_way_mute_original_mic: bool,
     /// Audio source: "system" | "microphone" | "both"
     pub audio_source: String,
     /// Overlay opacity: 0.0 - 1.0
@@ -78,6 +88,11 @@ impl Default for Settings {
             max_lines: 5,
             show_original: true,
             translation_mode: "soniox".to_string(),
+            translation_direction: "one_way".to_string(),
+            my_language: "vi".to_string(),
+            other_language: "en".to_string(),
+            two_way_tts_enabled: true,
+            two_way_mute_original_mic: false,
             custom_context: None,
             elevenlabs_api_key: String::new(),
             tts_enabled: false,

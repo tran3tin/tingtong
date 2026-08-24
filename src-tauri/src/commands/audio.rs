@@ -9,7 +9,8 @@ use tauri::{ipc::Channel, State};
 pub struct AudioState {
     pub system_audio: Mutex<SystemAudioCapture>,
     pub microphone: Mutex<MicCapture>,
-    pub active_receiver: Mutex<Option<AudioForwarder>>,
+    pub system_forwarder: Mutex<Option<AudioForwarder>>,
+    pub microphone_forwarder: Mutex<Option<AudioForwarder>>,
 }
 
 /// Forwards audio from a receiver to a Tauri IPC channel
@@ -30,29 +31,85 @@ pub struct PermissionStatus {
     pub microphone: String,
 }
 
-/// Start audio capture and forward data to the frontend via IPC channel
+/// Start audio capture and forward data to the frontend via IPC channel.
+/// Kept for existing one-way/local mode. It still allows only one active source.
 #[tauri::command]
 pub fn start_capture(
     source: String,
     channel: Channel<Vec<u8>>,
     state: State<'_, AudioState>,
 ) -> Result<(), String> {
-    // Stop any existing capture first
     stop_capture_inner(&state);
 
-    let receiver: mpsc::Receiver<Vec<u8>> = match source.as_str() {
-        "system" => {
-            let sys = state.system_audio.lock().map_err(|e| e.to_string())?;
-            sys.start()?
-        }
-        "microphone" => {
-            let mut mic = state.microphone.lock().map_err(|e| e.to_string())?;
-            mic.start()?
-        }
-        _ => return Err(format!("Unknown source: {}", source)),
+    match source.as_str() {
+        "system" => start_system_capture(channel, state),
+        "microphone" => start_microphone_capture(channel, state),
+        _ => Err(format!("Unknown source: {}", source)),
+    }
+}
+
+/// Start system audio capture without stopping microphone capture.
+#[tauri::command]
+pub fn start_system_capture(
+    channel: Channel<Vec<u8>>,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    stop_system_capture_inner(&state);
+
+    let receiver = {
+        let sys = state.system_audio.lock().map_err(|e| e.to_string())?;
+        sys.start()?
     };
 
-    // Spawn a thread to forward audio data from receiver to IPC channel
+    let forwarder = spawn_forwarder(receiver, channel);
+    let mut active = state.system_forwarder.lock().map_err(|e| e.to_string())?;
+    *active = Some(forwarder);
+
+    Ok(())
+}
+
+/// Start microphone capture without stopping system audio capture.
+#[tauri::command]
+pub fn start_microphone_capture(
+    channel: Channel<Vec<u8>>,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    stop_microphone_capture_inner(&state);
+
+    let receiver = {
+        let mut mic = state.microphone.lock().map_err(|e| e.to_string())?;
+        mic.start()?
+    };
+
+    let forwarder = spawn_forwarder(receiver, channel);
+    let mut active = state.microphone_forwarder.lock().map_err(|e| e.to_string())?;
+    *active = Some(forwarder);
+
+    Ok(())
+}
+
+/// Stop all audio capture
+#[tauri::command]
+pub fn stop_capture(state: State<'_, AudioState>) -> Result<(), String> {
+    stop_capture_inner(&state);
+    Ok(())
+}
+
+/// Stop only system audio capture
+#[tauri::command]
+pub fn stop_system_capture(state: State<'_, AudioState>) -> Result<(), String> {
+    stop_system_capture_inner(&state);
+    Ok(())
+}
+
+/// Stop only microphone capture
+#[tauri::command]
+pub fn stop_microphone_capture(state: State<'_, AudioState>) -> Result<(), String> {
+    stop_microphone_capture_inner(&state);
+    Ok(())
+}
+
+fn spawn_forwarder(receiver: mpsc::Receiver<Vec<u8>>, channel: Channel<Vec<u8>>) -> AudioForwarder {
     let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop_flag_clone = stop_flag.clone();
 
@@ -63,7 +120,6 @@ pub fn start_capture(
 
         loop {
             if stop_flag_clone.load(std::sync::atomic::Ordering::SeqCst) {
-                // Flush remaining buffer before exit
                 if !buffer.is_empty() {
                     let _ = channel.send(buffer.clone());
                 }
@@ -83,10 +139,9 @@ pub fn start_capture(
                 }
             }
 
-            // Flush buffer every 200ms
             if last_flush.elapsed() >= batch_interval && !buffer.is_empty() {
-                if let Err(_e) = channel.send(buffer.clone()) {
-                    break; // Channel closed
+                if channel.send(buffer.clone()).is_err() {
+                    break;
                 }
                 buffer.clear();
                 last_flush = std::time::Instant::now();
@@ -94,35 +149,33 @@ pub fn start_capture(
         }
     });
 
-    // Store the forwarder so we can stop it later
-    let forwarder = AudioForwarder { stop_flag };
-    let mut active = state.active_receiver.lock().map_err(|e| e.to_string())?;
-    *active = Some(forwarder);
-
-    Ok(())
-}
-
-/// Stop audio capture
-#[tauri::command]
-pub fn stop_capture(state: State<'_, AudioState>) -> Result<(), String> {
-    stop_capture_inner(&state);
-    Ok(())
+    AudioForwarder { stop_flag }
 }
 
 fn stop_capture_inner(state: &AudioState) {
-    // Stop the forwarder
-    if let Ok(mut active) = state.active_receiver.lock() {
+    stop_system_capture_inner(state);
+    stop_microphone_capture_inner(state);
+}
+
+fn stop_system_capture_inner(state: &AudioState) {
+    if let Ok(mut active) = state.system_forwarder.lock() {
         if let Some(forwarder) = active.take() {
             forwarder.stop();
         }
     }
 
-    // Stop system audio
     if let Ok(sys) = state.system_audio.lock() {
         sys.stop();
     }
+}
 
-    // Stop microphone
+fn stop_microphone_capture_inner(state: &AudioState) {
+    if let Ok(mut active) = state.microphone_forwarder.lock() {
+        if let Some(forwarder) = active.take() {
+            forwarder.stop();
+        }
+    }
+
     if let Ok(mut mic) = state.microphone.lock() {
         mic.stop();
     }

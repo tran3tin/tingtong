@@ -14,12 +14,13 @@ export class TranscriptUI {
         this.contentEl = null;
         this.maxChars = 1200;
         this.fontSize = 16;
-        this.viewMode = 'single'; // 'single' or 'dual'
+        this.viewMode = 'single'; // 'single', 'dual', or 'two_way'
 
-        // Segments: each has { original, translation, status, speaker }
+        // Segments: each has { original, translation, status, speaker, direction }
         this.segments = [];
         this.provisionalText = '';
         this.provisionalSpeaker = null;
+        this.provisionalByDirection = {};
         this.currentSpeaker = null; // Track current speaker to detect changes
     }
 
@@ -56,6 +57,7 @@ export class TranscriptUI {
             translation: null,
             status: 'original',
             speaker: speaker || null,
+            direction: 'remote_to_me',
             createdAt: Date.now(),
         });
         if (speaker) this.currentSpeaker = speaker;
@@ -77,8 +79,75 @@ export class TranscriptUI {
                 translation: text,
                 status: 'translated',
                 speaker: null,
+                direction: 'remote_to_me',
             });
         }
+        this._render();
+    }
+
+    // ─── Two-way mode APIs ─────────────────────────────────
+
+    /**
+     * Two-way: switch transcript into two-panel layout
+     */
+    setTwoWayMode(enabled) {
+        if (this.viewMode === (enabled ? 'two_way' : 'single')) return;
+        this.viewMode = enabled ? 'two_way' : 'single';
+        this._render();
+    }
+
+    /**
+     * Two-way: add finalized original for a specific direction
+     */
+    addOriginalForDirection(text, speaker, direction) {
+        this._removeListening();
+        this.segments.push({
+            original: text,
+            translation: null,
+            status: 'original',
+            speaker: speaker || null,
+            direction: direction || 'remote_to_me',
+            createdAt: Date.now(),
+        });
+        if (speaker) this.currentSpeaker = speaker;
+        this._cleanupStaleOriginals();
+        this._render();
+    }
+
+    /**
+     * Two-way: apply translation to oldest untranslated segment of a direction
+     */
+    addTranslationForDirection(text, direction) {
+        const dir = direction || 'remote_to_me';
+        const seg = this.segments.find(s => s.status === 'original' && s.direction === dir);
+        if (seg) {
+            seg.translation = text;
+            seg.status = 'translated';
+        } else {
+            this.segments.push({
+                original: '',
+                translation: text,
+                status: 'translated',
+                speaker: null,
+                direction: dir,
+            });
+        }
+        this._render();
+    }
+
+    /**
+     * Two-way: provisional (in-progress) text for a specific direction
+     */
+    setProvisionalForDirection(text, speaker, direction) {
+        this._removeListening();
+        const dir = direction || 'remote_to_me';
+        this.provisionalByDirection[dir] = { text, speaker: speaker || null };
+        this._render();
+    }
+
+    clearProvisionalForDirection(direction) {
+        const dir = direction || 'remote_to_me';
+        delete this.provisionalByDirection[dir];
         this._render();
     }
 
@@ -98,6 +167,7 @@ export class TranscriptUI {
     clearProvisional() {
         this.provisionalText = '';
         this.provisionalSpeaker = null;
+        this.provisionalByDirection = {};
         this._render();
     }
 
@@ -106,6 +176,7 @@ export class TranscriptUI {
      */
     hasContent() {
         return this.segments.length > 0 || this.provisionalText ||
+            Object.keys(this.provisionalByDirection).length > 0 ||
             !!this.container.querySelector('.listening-indicator');
     }
 
@@ -128,6 +199,7 @@ export class TranscriptUI {
         this.segments = [];
         this.provisionalText = '';
         this.provisionalSpeaker = null;
+        this.provisionalByDirection = {};
         this.currentSpeaker = null;
         this.contentEl = null;
     }
@@ -184,8 +256,12 @@ export class TranscriptUI {
      * Get transcript as plain text for copying
      */
     getPlainText() {
+        const twoWay = this.viewMode === 'two_way';
         let lines = [];
         for (const seg of this.segments) {
+            if (twoWay) {
+                lines.push(seg.direction === 'me_to_remote' ? 'Mình:' : 'Người kia:');
+            }
             if (seg.original) lines.push(seg.original);
             if (seg.translation) lines.push(seg.translation);
             if (seg.original || seg.translation) lines.push('');
@@ -216,7 +292,11 @@ export class TranscriptUI {
 
         // Transcript entries
         for (const seg of this.segments) {
-            if (seg.speaker) lines.push(`**Speaker ${seg.speaker}:**`);
+            if (this.viewMode === 'two_way') {
+                lines.push(`**${seg.direction === 'me_to_remote' ? 'Mình' : 'Người kia'}:**`);
+            } else if (seg.speaker) {
+                lines.push(`**Speaker ${seg.speaker}:**`);
+            }
             if (seg.original) lines.push(`> ${seg.original}`);
             if (seg.translation) lines.push(seg.translation);
             lines.push('');
@@ -240,6 +320,7 @@ export class TranscriptUI {
         this.segments = [];
         this.provisionalText = '';
         this.provisionalSpeaker = null;
+        this.provisionalByDirection = {};
         this.currentSpeaker = null;
         this.contentEl = null;
     }
@@ -264,7 +345,9 @@ export class TranscriptUI {
         this._ensureContent();
         this._trimSegments();
 
-        if (this.viewMode === 'dual') {
+        if (this.viewMode === 'two_way') {
+            this._renderTwoWay();
+        } else if (this.viewMode === 'dual') {
             this._renderDual();
         } else {
             this._renderSingle();
@@ -298,6 +381,71 @@ export class TranscriptUI {
 
         this.contentEl.innerHTML = html;
         this._smartScroll(this.container.parentElement || this.container);
+    }
+
+    _renderTwoWay() {
+        const oldRemotePanel = this.contentEl.querySelector('.two-way-panel-remote .two-way-panel-body');
+        const oldMePanel = this.contentEl.querySelector('.two-way-panel-me .two-way-panel-body');
+        const remoteScrollState = oldRemotePanel ? this._getScrollState(oldRemotePanel) : { nearBottom: true, scrollTop: 0 };
+        const meScrollState = oldMePanel ? this._getScrollState(oldMePanel) : { nearBottom: true, scrollTop: 0 };
+
+        const remoteHtml = this._renderTwoWayPanelBody('remote_to_me');
+        const meHtml = this._renderTwoWayPanelBody('me_to_remote');
+
+        this.contentEl.innerHTML = `
+            <div class="two-way-transcript-grid">
+                <section class="two-way-panel two-way-panel-remote">
+                    <div class="two-way-panel-header">Người kia</div>
+                    <div class="two-way-panel-body">${remoteHtml}</div>
+                </section>
+                <section class="two-way-panel two-way-panel-me">
+                    <div class="two-way-panel-header">Mình</div>
+                    <div class="two-way-panel-body">${meHtml}</div>
+                </section>
+            </div>
+        `;
+
+        const remotePanel = this.contentEl.querySelector('.two-way-panel-remote .two-way-panel-body');
+        const mePanel = this.contentEl.querySelector('.two-way-panel-me .two-way-panel-body');
+        if (remotePanel) {
+            remotePanel.scrollTop = remoteScrollState.nearBottom ? remotePanel.scrollHeight : remoteScrollState.scrollTop;
+        }
+        if (mePanel) {
+            mePanel.scrollTop = meScrollState.nearBottom ? mePanel.scrollHeight : meScrollState.scrollTop;
+        }
+    }
+
+    _renderTwoWayPanelBody(direction) {
+        let html = '';
+        const segments = this.segments.filter(seg => seg.direction === direction);
+
+        for (const seg of segments) {
+            html += '<div class="two-way-segment">';
+            if (seg.speaker) {
+                html += `<div class="speaker-label">Speaker ${this._esc(String(seg.speaker))}:</div>`;
+            }
+            if (seg.original) {
+                html += `<div class="two-way-original">${this._esc(seg.original)}</div>`;
+            }
+            if (seg.translation) {
+                html += `<div class="two-way-translation">${this._esc(seg.translation)}</div>`;
+            } else if (seg.status === 'original') {
+                html += '<div class="two-way-translation pending">...</div>';
+            }
+            html += '</div>';
+        }
+
+        const provisional = this.provisionalByDirection[direction];
+        if (provisional?.text) {
+            html += '<div class="two-way-segment provisional">';
+            if (provisional.speaker) {
+                html += `<div class="speaker-label">Speaker ${this._esc(String(provisional.speaker))}:</div>`;
+            }
+            html += `<div class="two-way-original pending">${this._esc(provisional.text)}</div>`;
+            html += '</div>';
+        }
+
+        return html || '<div class="two-way-empty">Đang chờ âm thanh...</div>';
     }
 
     _renderDual() {

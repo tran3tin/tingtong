@@ -5,7 +5,7 @@
 
 import { settingsManager } from './settings.js';
 import { TranscriptUI } from './ui.js';
-import { sonioxClient } from './soniox.js';
+import { sonioxClient, SonioxClient } from './soniox.js';
 import { elevenLabsTTS } from './elevenlabs-tts.js';
 import { googleTTS } from './google-tts.js';
 import { edgeTTSRust } from './edge-tts.js';
@@ -13,6 +13,14 @@ import { audioPlayer } from './audio-player.js';
 
 const { invoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
+
+const EDGE_VOICE_BY_LANG = {
+    vi: 'vi-VN-HoaiMyNeural',
+    en: 'en-US-JennyNeural',
+    ja: 'ja-JP-NanamiNeural',
+    ko: 'ko-KR-SunHiNeural',
+    zh: 'zh-CN-XiaoxiaoNeural',
+};
 
 class App {
     constructor() {
@@ -28,6 +36,11 @@ class App {
         this.ttsEnabled = false;  // TTS runtime toggle
         this.isPinned = true;     // Always-on-top state
         this.isCompact = false;   // Compact mode (hide control bar)
+        this.remoteSonioxClient = null;
+        this.localSonioxClient = null;
+        this.twoWayDirection = 'one_way';
+        this.ttsRemoteToMeEnabled = false; // Two-way: read remote→me translations
+        this.ttsMeToRemoteEnabled = false; // Two-way: read me→remote translations
     }
 
     async init() {
@@ -247,6 +260,13 @@ class App {
             this._updateModeUI(e.target.value);
         });
 
+        // Translation direction toggle
+        document.querySelectorAll('input[name="translation-direction"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                this._updateDirectionUI(document.querySelector('input[name="translation-direction"]:checked')?.value || 'one_way');
+            });
+        });
+
         // Soniox link
         document.getElementById('link-soniox').addEventListener('click', (e) => {
             e.preventDefault();
@@ -338,6 +358,14 @@ class App {
         // TTS toggle button in overlay
         document.getElementById('btn-tts').addEventListener('click', () => {
             this._toggleTTS();
+        });
+
+        document.getElementById('btn-tts-remote-to-me')?.addEventListener('click', () => {
+            this._toggleTwoWayTTS('remote_to_me');
+        });
+
+        document.getElementById('btn-tts-me-to-remote')?.addEventListener('click', () => {
+            this._toggleTwoWayTTS('me_to_remote');
         });
 
         // Wire Soniox callbacks
@@ -478,7 +506,15 @@ class App {
         document.getElementById('select-source-lang').value = s.source_language || 'auto';
         document.getElementById('select-target-lang').value = s.target_language || 'vi';
         document.getElementById('select-translation-mode').value = s.translation_mode || 'soniox';
+        const direction = s.translation_direction || 'one_way';
+        const directionRadio = document.querySelector(`input[name="translation-direction"][value="${direction}"]`);
+        if (directionRadio) directionRadio.checked = true;
+        document.getElementById('select-my-language').value = s.my_language || 'vi';
+        document.getElementById('select-other-language').value = s.other_language || 'en';
+        document.getElementById('check-two-way-tts').checked = s.two_way_tts_enabled !== false;
+        document.getElementById('check-two-way-mute-original-mic').checked = !!s.two_way_mute_original_mic;
         this._updateModeUI(s.translation_mode || 'soniox');
+        this._updateDirectionUI(direction);
 
         // Audio source radio
         const radioValue = s.audio_source || 'system';
@@ -546,6 +582,11 @@ class App {
             source_language: document.getElementById('select-source-lang').value,
             target_language: document.getElementById('select-target-lang').value,
             translation_mode: document.getElementById('select-translation-mode').value,
+            translation_direction: document.querySelector('input[name="translation-direction"]:checked')?.value || 'one_way',
+            my_language: document.getElementById('select-my-language')?.value || 'vi',
+            other_language: document.getElementById('select-other-language')?.value || 'en',
+            two_way_tts_enabled: document.getElementById('check-two-way-tts')?.checked !== false,
+            two_way_mute_original_mic: !!document.getElementById('check-two-way-mute-original-mic')?.checked,
             audio_source: document.querySelector('input[name="audio-source"]:checked')?.value || 'system',
             overlay_opacity: parseInt(document.getElementById('range-opacity').value) / 100,
             font_size: parseInt(document.getElementById('range-font-size').value),
@@ -605,7 +646,15 @@ class App {
                 showOriginal: settings.show_original !== false,
                 fontSize: settings.font_size || 16,
             });
+            this.transcriptUI.setTwoWayMode((settings.translation_direction || 'one_way') === 'two_way');
         }
+
+        this.twoWayDirection = settings.translation_direction || 'one_way';
+
+        // Two-way TTS toggles always start OFF — user enables per session via overlay buttons
+        this.ttsRemoteToMeEnabled = false;
+        this.ttsMeToRemoteEnabled = false;
+        this._updateTwoWayTTSButtons();
 
         // Update current source button states
         this.currentSource = settings.audio_source === 'both' ? 'system' : (settings.audio_source || 'system');
@@ -652,6 +701,26 @@ class App {
             audioPlayer.stop();
             this._showToast('TTS narration OFF 🔇', 'success');
         }
+    }
+
+    _toggleTwoWayTTS(direction) {
+        if (direction === 'remote_to_me') {
+            this.ttsRemoteToMeEnabled = !this.ttsRemoteToMeEnabled;
+            this._showToast(this.ttsRemoteToMeEnabled ? 'TTS nghe ON 🔊' : 'TTS nghe OFF 🔇', 'success');
+        } else {
+            this.ttsMeToRemoteEnabled = !this.ttsMeToRemoteEnabled;
+            this._showToast(this.ttsMeToRemoteEnabled ? 'TTS gửi ON 🔊' : 'TTS gửi OFF 🔇', 'success');
+        }
+
+        if ((this.ttsRemoteToMeEnabled || this.ttsMeToRemoteEnabled) && this.isRunning) {
+            edgeTTSRust.connect();
+            audioPlayer.resume();
+        } else if (!this.ttsRemoteToMeEnabled && !this.ttsMeToRemoteEnabled) {
+            edgeTTSRust.disconnect();
+            audioPlayer.stop();
+        }
+
+        this._updateTwoWayTTSButtons();
     }
 
     _getActiveTTS() {
@@ -727,6 +796,13 @@ class App {
         if (iconOn) iconOn.style.display = this.ttsEnabled ? 'block' : 'none';
     }
 
+    _updateTwoWayTTSButtons() {
+        const remoteBtn = document.getElementById('btn-tts-remote-to-me');
+        const localBtn = document.getElementById('btn-tts-me-to-remote');
+        if (remoteBtn) remoteBtn.classList.toggle('active', this.ttsRemoteToMeEnabled);
+        if (localBtn) localBtn.classList.toggle('active', this.ttsMeToRemoteEnabled);
+    }
+
     _speakIfEnabled(text) {
         if (this.ttsEnabled && text?.trim()) {
             this._getActiveTTS().speak(text);
@@ -762,6 +838,13 @@ class App {
 
     _updateModeUI(mode) {
         const isSoniox = mode === 'soniox';
+        const direction = document.querySelector('input[name="translation-direction"]:checked')?.value || 'one_way';
+        const forceTwoWayOff = !isSoniox && direction === 'two_way';
+
+        if (forceTwoWayOff) {
+            const oneWayRadio = document.querySelector('input[name="translation-direction"][value="one_way"]');
+            if (oneWayRadio) oneWayRadio.checked = true;
+        }
 
         // Toggle hints
         const hintSoniox = document.getElementById('hint-mode-soniox');
@@ -774,6 +857,29 @@ class App {
         const sectionContext = document.getElementById('section-soniox-context');
         if (sectionApiKey) sectionApiKey.style.display = isSoniox ? '' : 'none';
         if (sectionContext) sectionContext.style.display = isSoniox ? '' : 'none';
+
+        const twoWayRadio = document.querySelector('input[name="translation-direction"][value="two_way"]');
+        if (twoWayRadio) twoWayRadio.disabled = !isSoniox;
+        this._updateDirectionUI(forceTwoWayOff ? 'one_way' : direction);
+    }
+
+    _updateDirectionUI(direction) {
+        const isTwoWay = direction === 'two_way';
+        const hintOneWay = document.getElementById('hint-direction-one-way');
+        const hintTwoWay = document.getElementById('hint-direction-two-way');
+        const sectionTwoWayLanguages = document.getElementById('section-two-way-languages');
+        const sourceGroup = document.getElementById('audio-source-group')?.closest('.settings-section');
+        const viewModeButton = document.getElementById('btn-view-mode');
+        const oneWayTTSButton = document.getElementById('btn-tts');
+        const twoWayTTSControls = document.getElementById('two-way-tts-controls');
+
+        if (hintOneWay) hintOneWay.style.display = isTwoWay ? 'none' : '';
+        if (hintTwoWay) hintTwoWay.style.display = isTwoWay ? '' : 'none';
+        if (sectionTwoWayLanguages) sectionTwoWayLanguages.style.display = isTwoWay ? '' : 'none';
+        if (sourceGroup) sourceGroup.style.display = isTwoWay ? 'none' : '';
+        if (viewModeButton) viewModeButton.style.display = isTwoWay ? 'none' : '';
+        if (oneWayTTSButton) oneWayTTSButton.style.display = isTwoWay ? 'none' : '';
+        if (twoWayTTSControls) twoWayTTSControls.style.display = isTwoWay ? '' : 'none';
     }
 
     // ─── Start/Stop ────────────────────────────────────────
@@ -781,6 +887,7 @@ class App {
     async start() {
         const settings = settingsManager.get();
         this.translationMode = settings.translation_mode || 'soniox';
+        this.twoWayDirection = settings.translation_direction || 'one_way';
         console.log('[App] start() called, translation_mode:', this.translationMode, 'settings:', JSON.stringify(settings));
 
         // Check Soniox API key only for cloud mode
@@ -810,12 +917,14 @@ class App {
 
         if (this.translationMode === 'local') {
             await this._startLocalMode(settings);
+        } else if (this.twoWayDirection === 'two_way') {
+            await this._startTwoWayMode(settings);
         } else {
             await this._startSonioxMode(settings);
         }
 
-        // Start TTS if enabled
-        if (this.ttsEnabled) {
+        // Start TTS if enabled (one-way modes only — two-way manages TTS itself)
+        if (this.ttsEnabled && this.twoWayDirection !== 'two_way') {
             const tts = this._getActiveTTS();
             this._configureTTS(tts, settings);
             tts.connect();
@@ -860,6 +969,119 @@ class App {
             this._showToast(`Audio error: ${err}`, 'error');
             await this.stop();
         }
+    }
+
+    async _startTwoWayMode(settings) {
+        console.log('[App] Starting two-way call mode...');
+        this._updateStatus('connecting');
+        this.transcriptUI.setTwoWayMode(true);
+        this._showToast('Two-way mode: use headphones; route TTS to CABLE Input if needed.', 'success');
+
+        this.remoteSonioxClient = new SonioxClient();
+        this.localSonioxClient = new SonioxClient();
+        this._configureTwoWayCallbacks(settings);
+
+        this.remoteSonioxClient.connect({
+            apiKey: settings.soniox_api_key,
+            sourceLanguage: settings.other_language || 'en',
+            targetLanguage: settings.my_language || 'vi',
+            customContext: settings.custom_context,
+        });
+
+        this.localSonioxClient.connect({
+            apiKey: settings.soniox_api_key,
+            sourceLanguage: settings.my_language || 'vi',
+            targetLanguage: settings.other_language || 'en',
+            customContext: settings.custom_context,
+        });
+
+        try {
+            const systemChannel = new window.__TAURI__.core.Channel();
+            const micChannel = new window.__TAURI__.core.Channel();
+            let systemChunkCount = 0;
+            let micChunkCount = 0;
+
+            systemChannel.onmessage = (pcmData) => {
+                systemChunkCount++;
+                if (systemChunkCount <= 3 || systemChunkCount % 50 === 0) {
+                    console.log(`[Two-way/System] Batch #${systemChunkCount}, size:`, pcmData?.length || 0);
+                }
+                this.remoteSonioxClient?.sendAudio(new Uint8Array(pcmData).buffer);
+            };
+
+            micChannel.onmessage = (pcmData) => {
+                micChunkCount++;
+                if (micChunkCount <= 3 || micChunkCount % 50 === 0) {
+                    console.log(`[Two-way/Mic] Batch #${micChunkCount}, size:`, pcmData?.length || 0);
+                }
+                this.localSonioxClient?.sendAudio(new Uint8Array(pcmData).buffer);
+            };
+
+            await invoke('start_system_capture', { channel: systemChannel });
+            await invoke('start_microphone_capture', { channel: micChannel });
+            console.log('[App] Two-way captures started successfully');
+        } catch (err) {
+            console.error('Failed to start two-way audio capture:', err);
+            this._showToast(`Two-way audio error: ${err}`, 'error');
+            await this.stop();
+        }
+    }
+
+    _configureTwoWayCallbacks(settings) {
+        const myLanguage = settings.my_language || 'vi';
+        const otherLanguage = settings.other_language || 'en';
+        let connectedCount = 0;
+        const onStatus = (status) => {
+            if (status === 'connected') {
+                connectedCount = Math.min(2, connectedCount + 1);
+                if (connectedCount >= 2) this._updateStatus('connected');
+                return;
+            }
+            if (status === 'connecting') this._updateStatus('connecting');
+            if (status === 'error') this._updateStatus('error');
+        };
+
+        this.remoteSonioxClient.onOriginal = (text, speaker) => {
+            this.transcriptUI.addOriginalForDirection(text, speaker, 'remote_to_me');
+        };
+        this.remoteSonioxClient.onTranslation = (text) => {
+            this.transcriptUI.addTranslationForDirection(text, 'remote_to_me');
+            this._speakTwoWayIfEnabled(text, myLanguage, 'remote_to_me');
+        };
+        this.remoteSonioxClient.onProvisional = (text, speaker) => {
+            if (text) this.transcriptUI.setProvisionalForDirection(text, speaker, 'remote_to_me');
+            else this.transcriptUI.clearProvisionalForDirection('remote_to_me');
+        };
+        this.remoteSonioxClient.onStatusChange = onStatus;
+        this.remoteSonioxClient.onError = (error) => this._showToast(`Remote audio: ${error}`, 'error');
+
+        this.localSonioxClient.onOriginal = (text, speaker) => {
+            this.transcriptUI.addOriginalForDirection(text, speaker, 'me_to_remote');
+        };
+        this.localSonioxClient.onTranslation = (text) => {
+            this.transcriptUI.addTranslationForDirection(text, 'me_to_remote');
+            this._speakTwoWayIfEnabled(text, otherLanguage, 'me_to_remote');
+        };
+        this.localSonioxClient.onProvisional = (text, speaker) => {
+            if (text) this.transcriptUI.setProvisionalForDirection(text, speaker, 'me_to_remote');
+            else this.transcriptUI.clearProvisionalForDirection('me_to_remote');
+        };
+        this.localSonioxClient.onStatusChange = onStatus;
+        this.localSonioxClient.onError = (error) => this._showToast(`Microphone: ${error}`, 'error');
+    }
+
+    _speakTwoWayIfEnabled(text, language, direction) {
+        const enabled = direction === 'me_to_remote'
+            ? this.ttsMeToRemoteEnabled
+            : this.ttsRemoteToMeEnabled;
+        if (!enabled || !text?.trim()) return;
+        edgeTTSRust.configure({
+            voice: EDGE_VOICE_BY_LANG[language] || EDGE_VOICE_BY_LANG.en,
+            speed: settingsManager.get().edge_tts_speed !== undefined ? settingsManager.get().edge_tts_speed : 20,
+        });
+        edgeTTSRust.connect();
+        audioPlayer.resume();
+        edgeTTSRust.speak(text);
     }
 
     async _startLocalMode(settings) {
@@ -1143,6 +1365,20 @@ class App {
             this.localPipelineReady = false;
             this.transcriptUI.removeStatusMessage();
             this._updateStatus('disconnected');
+        } else if (this.twoWayDirection === 'two_way' && (this.remoteSonioxClient || this.localSonioxClient)) {
+            try {
+                await invoke('stop_system_capture');
+                await invoke('stop_microphone_capture');
+            } catch (err) {
+                console.error('Failed to stop two-way audio capture:', err);
+            }
+            this.remoteSonioxClient?.disconnect();
+            this.localSonioxClient?.disconnect();
+            this.remoteSonioxClient = null;
+            this.localSonioxClient = null;
+            edgeTTSRust.disconnect();
+            audioPlayer.stop();
+            this._updateStatus('disconnected');
         } else {
             // Disconnect Soniox
             sonioxClient.disconnect();
@@ -1150,6 +1386,8 @@ class App {
 
         // Keep transcript visible — don't clear
         this.transcriptUI.clearProvisional();
+        this.transcriptUI.setTwoWayMode(this.twoWayDirection === 'two_way');
+        this._updateTwoWayTTSButtons();
 
         // Stop TTS
         elevenLabsTTS.disconnect();
@@ -1187,15 +1425,17 @@ class App {
             ? this._formatDuration(Date.now() - this.recordingStartTime)
             : 'unknown';
 
-        const sourceLang = document.getElementById('select-source-lang')?.value || 'auto';
-        const targetLang = document.getElementById('select-target-lang')?.value || 'vi';
+        const settings = settingsManager.get();
+        const isTwoWay = this.twoWayDirection === 'two_way';
+        const sourceLang = isTwoWay ? (settings.other_language || 'en') : (document.getElementById('select-source-lang')?.value || 'auto');
+        const targetLang = isTwoWay ? (settings.my_language || 'vi') : (document.getElementById('select-target-lang')?.value || 'vi');
 
         const content = this.transcriptUI.getFormattedContent({
-            model: this.translationMode === 'soniox' ? 'Soniox Cloud API' : 'Local MLX Whisper',
+            model: isTwoWay ? 'Soniox Cloud API — Two-way Call' : (this.translationMode === 'soniox' ? 'Soniox Cloud API' : 'Local MLX Whisper'),
             sourceLang,
             targetLang,
             duration,
-            audioSource: this.currentSource,
+            audioSource: isTwoWay ? 'system + microphone' : this.currentSource,
         });
 
         if (!content) return;
