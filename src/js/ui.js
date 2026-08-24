@@ -42,6 +42,7 @@ export class TranscriptUI {
             const overlay = document.getElementById('overlay-view');
             if (overlay) {
                 overlay.classList.toggle('dual-view', viewMode === 'dual');
+                overlay.classList.toggle('two-way-view', viewMode === 'two_way');
             }
             this._render();
         }
@@ -93,6 +94,11 @@ export class TranscriptUI {
     setTwoWayMode(enabled) {
         if (this.viewMode === (enabled ? 'two_way' : 'single')) return;
         this.viewMode = enabled ? 'two_way' : 'single';
+        const overlay = document.getElementById('overlay-view');
+        if (overlay) {
+            overlay.classList.toggle('two-way-view', enabled);
+            overlay.classList.toggle('dual-view', false);
+        }
         this._render();
     }
 
@@ -384,30 +390,34 @@ export class TranscriptUI {
     }
 
     _renderTwoWay() {
-        const remoteHtml = this._renderTwoWayPanelBody('remote_to_me');
-        const meHtml = this._renderTwoWayPanelBody('me_to_remote');
-
-        this.contentEl.innerHTML = `
-            <div class="two-way-transcript-grid">
-                <section class="two-way-panel two-way-panel-remote">
-                    <div class="two-way-panel-header">Người kia</div>
-                    <div class="two-way-panel-body">${remoteHtml}</div>
-                </section>
-                <section class="two-way-panel two-way-panel-me">
-                    <div class="two-way-panel-header">Mình</div>
-                    <div class="two-way-panel-body">${meHtml}</div>
-                </section>
-            </div>
-        `;
-
         const remotePanel = this.contentEl.querySelector('.two-way-panel-remote .two-way-panel-body');
         const mePanel = this.contentEl.querySelector('.two-way-panel-me .two-way-panel-body');
-        if (remotePanel) {
-            remotePanel.scrollTop = remotePanel.scrollHeight;
+
+        if (!remotePanel || !mePanel) {
+            this.contentEl.innerHTML = `
+                <div class="two-way-transcript-grid">
+                    <section class="two-way-panel two-way-panel-remote">
+                        <div class="two-way-panel-header">Người kia</div>
+                        <div class="two-way-panel-body"></div>
+                    </section>
+                    <section class="two-way-panel two-way-panel-me">
+                        <div class="two-way-panel-header">Mình</div>
+                        <div class="two-way-panel-body"></div>
+                    </section>
+                </div>
+            `;
         }
-        if (mePanel) {
-            mePanel.scrollTop = mePanel.scrollHeight;
-        }
+
+        this._renderTwoWayPanel('remote_to_me', '.two-way-panel-remote .two-way-panel-body');
+        this._renderTwoWayPanel('me_to_remote', '.two-way-panel-me .two-way-panel-body');
+    }
+
+    _renderTwoWayPanel(direction, selector) {
+        const panel = this.contentEl.querySelector(selector);
+        if (!panel) return;
+
+        panel.innerHTML = this._renderTwoWayPanelBody(direction);
+        panel.scrollTop = panel.scrollHeight;
     }
 
     _renderTwoWayPanelBody(direction) {
