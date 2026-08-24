@@ -384,11 +384,6 @@ export class TranscriptUI {
     }
 
     _renderTwoWay() {
-        const oldRemotePanel = this.contentEl.querySelector('.two-way-panel-remote .two-way-panel-body');
-        const oldMePanel = this.contentEl.querySelector('.two-way-panel-me .two-way-panel-body');
-        const remoteScrollState = oldRemotePanel ? this._getScrollState(oldRemotePanel) : { nearBottom: true, scrollTop: 0 };
-        const meScrollState = oldMePanel ? this._getScrollState(oldMePanel) : { nearBottom: true, scrollTop: 0 };
-
         const remoteHtml = this._renderTwoWayPanelBody('remote_to_me');
         const meHtml = this._renderTwoWayPanelBody('me_to_remote');
 
@@ -408,10 +403,10 @@ export class TranscriptUI {
         const remotePanel = this.contentEl.querySelector('.two-way-panel-remote .two-way-panel-body');
         const mePanel = this.contentEl.querySelector('.two-way-panel-me .two-way-panel-body');
         if (remotePanel) {
-            remotePanel.scrollTop = remoteScrollState.nearBottom ? remotePanel.scrollHeight : remoteScrollState.scrollTop;
+            remotePanel.scrollTop = remotePanel.scrollHeight;
         }
         if (mePanel) {
-            mePanel.scrollTop = meScrollState.nearBottom ? mePanel.scrollHeight : meScrollState.scrollTop;
+            mePanel.scrollTop = mePanel.scrollHeight;
         }
     }
 
