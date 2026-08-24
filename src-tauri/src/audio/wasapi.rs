@@ -22,7 +22,6 @@ impl SystemAudioCapture {
     pub fn start(&self) -> Result<mpsc::Receiver<Vec<u8>>, String> {
         use windows::Win32::Media::Audio::*;
         use windows::Win32::System::Com::*;
-        use windows::core::*;
 
         if self.is_capturing.load(Ordering::SeqCst) {
             return Err("Already capturing".to_string());
@@ -144,6 +143,7 @@ impl SystemAudioCapture {
         self.is_capturing.store(false, Ordering::SeqCst);
     }
 
+    #[allow(dead_code)]
     pub fn is_capturing(&self) -> bool {
         self.is_capturing.load(Ordering::SeqCst)
     }

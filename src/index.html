@@ -187,7 +187,6 @@
         <button class="settings-tab active" data-tab="tab-translation">Translation</button>
         <button class="settings-tab" data-tab="tab-display">Display</button>
         <button class="settings-tab" data-tab="tab-tts">TTS</button>
-        <button class="settings-tab" data-tab="tab-about">About</button>
       </div>
 
       <!-- Tab: Translation -->
@@ -511,52 +510,6 @@
         </div>
       </div>
 
-      <!-- Tab: About -->
-      <div class="settings-tab-content" id="tab-about">
-        <div class="settings-section about-info">
-          <div class="about-app-header">
-            <span class="about-app-name">My Translator</span>
-            <span class="about-app-version" id="about-version">v0.5.0</span>
-          </div>
-          <p class="hint">Real-time speech translator for macOS & Windows</p>
-        </div>
-
-        <div class="settings-section" id="section-update">
-          <span class="field-label">Updates</span>
-          <div id="update-status" class="update-status">
-            <span id="update-status-text">Click to check for updates</span>
-            <button id="btn-check-update" class="check-update-btn" title="Check now">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="23 4 23 10 17 10"/>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-              </svg>
-            </button>
-          </div>
-          <div id="update-actions" style="margin-top:8px;display:none;">
-            <button id="btn-do-update" class="primary-btn update-btn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              <span id="update-btn-text">Download & Install</span>
-            </button>
-          </div>
-          <div id="update-progress" class="update-progress" style="display:none;">
-            <div class="progress-bar"><div id="update-progress-fill" class="progress-fill"></div></div>
-            <span id="update-progress-pct" class="progress-pct">0%</span>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <span class="field-label">Links</span>
-          <div class="about-links">
-            <a href="#" id="link-github">GitHub Repository</a>
-            <a href="#" id="link-issues">Report a Bug</a>
-          </div>
-        </div>
-      </div>
-
       <!-- Save -->
       <div class="settings-actions">
         <button id="btn-save-settings" class="primary-btn">
@@ -628,7 +581,6 @@
   <script type="module" src="/js/soniox.js"></script>
   <script type="module" src="/js/elevenlabs-tts.js"></script>
   <script type="module" src="/js/google-tts.js"></script>
-  <script type="module" src="/js/updater.js"></script>
   <script type="module" src="/js/audio-player.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>

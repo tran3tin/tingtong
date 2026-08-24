@@ -42,7 +42,3 @@ windows = { version = "0.58", features = [
   "Win32_System_Com",
   "Win32_Foundation",
 ] }
-
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-updater = "2.10.0"
-tauri-plugin-process = "2"
