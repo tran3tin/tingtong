@@ -392,8 +392,12 @@ class App {
             console.log('[App] Send-to-remote device:', deviceValue);
         });
 
-        // Two-way microphone input device (cpal device name). Only affects the
-        // next capture start — a running capture keeps its current device.
+        document.getElementById('select-two-way-audio-mode')?.addEventListener('change', async (e) => {
+            const mode = e.target.value;
+            await settingsManager.save({ two_way_audio_mode: mode });
+            this._updateTwoWayAudioModeUI(mode);
+        });
+
         document.getElementById('select-mic-device')?.addEventListener('change', async (e) => {
             const deviceValue = e.target.value;
             await settingsManager.save({ microphone_device: deviceValue });
@@ -543,6 +547,9 @@ class App {
         if (directionRadio) directionRadio.checked = true;
         document.getElementById('select-my-language').value = s.my_language || 'vi';
         document.getElementById('select-other-language').value = s.other_language || 'en';
+        const audioModeSelect = document.getElementById('select-two-way-audio-mode');
+        if (audioModeSelect) audioModeSelect.value = s.two_way_audio_mode || 'vb_cable';
+        this._updateTwoWayAudioModeUI(audioModeSelect?.value || 'vb_cable');
         document.getElementById('check-two-way-tts').checked = s.two_way_tts_enabled !== false;
         document.getElementById('check-two-way-mute-original-mic').checked = !!s.two_way_mute_original_mic;
         this._updateModeUI(s.translation_mode || 'soniox');
@@ -617,6 +624,7 @@ class App {
             translation_direction: document.querySelector('input[name="translation-direction"]:checked')?.value || 'one_way',
             my_language: document.getElementById('select-my-language')?.value || 'vi',
             other_language: document.getElementById('select-other-language')?.value || 'en',
+            two_way_audio_mode: document.getElementById('select-two-way-audio-mode')?.value || 'vb_cable',
             two_way_tts_enabled: document.getElementById('check-two-way-tts')?.checked !== false,
             two_way_mute_original_mic: !!document.getElementById('check-two-way-mute-original-mic')?.checked,
             audio_source: document.querySelector('input[name="audio-source"]:checked')?.value || 'system',
@@ -987,6 +995,29 @@ class App {
         if (viewModeButton) viewModeButton.style.display = isTwoWay ? 'none' : '';
         if (oneWayTTSButton) oneWayTTSButton.style.display = isTwoWay ? 'none' : '';
         if (twoWayTTSControls) twoWayTTSControls.style.display = isTwoWay ? '' : 'none';
+
+        if (isTwoWay) {
+            const mode = document.getElementById('select-two-way-audio-mode')?.value || 'vb_cable';
+            this._updateTwoWayAudioModeUI(mode);
+        }
+    }
+
+    /**
+     * Show the VB-Cable-only fields (mic selector + warning) only for the
+     * "Use VB-Cable" routing mode. "No Use VB-Cable" is under development.
+     */
+    _updateTwoWayAudioModeUI(mode) {
+        const isVBCable = mode !== 'no_vb_cable';
+        const micField = document.getElementById('select-mic-device')?.closest('.field');
+        const warningHint = document.querySelector('#section-two-way-languages .warning-hint');
+        const modeHint = document.getElementById('hint-two-way-audio-mode');
+        if (micField) micField.style.display = isVBCable ? '' : 'none';
+        if (warningHint) warningHint.style.display = isVBCable ? '' : 'none';
+        if (modeHint) {
+            modeHint.textContent = isVBCable
+                ? 'Use VB-Cable is the current implementation.'
+                : 'No Use VB-Cable is under development.';
+        }
     }
 
     // ─── Start/Stop ────────────────────────────────────────
@@ -1079,6 +1110,13 @@ class App {
     }
 
     async _startTwoWayMode(settings) {
+        if (settings.two_way_audio_mode === 'no_vb_cable') {
+            this._showToast('No Use VB-Cable is under development.', 'error');
+            this.isRunning = false;
+            this._updateStartButton();
+            this._updateStatus('error');
+            return;
+        }
         console.log('[App] Starting two-way call mode...');
         this._updateStatus('connecting');
         this.transcriptUI.setTwoWayMode(true);

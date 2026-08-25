@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS = {
   my_language: 'vi',
   other_language: 'en',
   two_way_tts_enabled: true,
+  // Two-way audio routing: 'vb_cable' (VB-Audio Virtual Cable, implemented) or
+  // 'no_vb_cable' (planned, under development).
+  two_way_audio_mode: 'vb_cable',
   two_way_mute_original_mic: false,
   custom_context: null,
   elevenlabs_api_key: '',

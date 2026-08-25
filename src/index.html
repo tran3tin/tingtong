@@ -283,6 +283,14 @@
             <span class="checkbox-label">Mute original mic route</span>
           </label>
           <div class="field" style="margin-top: 10px;">
+            <span class="field-label">Two-way audio routing</span>
+            <select id="select-two-way-audio-mode">
+              <option value="vb_cable">Use VB-Cable</option>
+              <option value="no_vb_cable">No Use VB-Cable</option>
+            </select>
+            <p class="hint" id="hint-two-way-audio-mode">Use VB-Cable is the current implementation. No Use VB-Cable is under development.</p>
+          </div>
+          <div class="field" style="margin-top: 10px;">
             <span class="field-label">Microphone (my voice)</span>
             <select id="select-mic-device">
               <option value="default">System Default</option>
