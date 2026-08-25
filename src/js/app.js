@@ -9,7 +9,7 @@ import { sonioxClient, SonioxClient } from './soniox.js';
 import { elevenLabsTTS } from './elevenlabs-tts.js';
 import { googleTTS } from './google-tts.js';
 import { edgeTTSRust } from './edge-tts.js';
-import { audioPlayer } from './audio-player.js';
+import { audioPlayer, remoteAudioPlayer } from './audio-player.js';
 
 const { invoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
@@ -41,7 +41,8 @@ class App {
         this.twoWayDirection = 'one_way';
         this.ttsRemoteToMeEnabled = false; // Two-way: read remote→me translations
         this.ttsMeToRemoteEnabled = false; // Two-way: read me→remote translations
-        this._isTTSPlaying = false;
+        this._isTTSPlaying = false;        // any TTS rendering (echo suppression for mic)
+        this._isRemoteTTSPlaying = false; // send-to-remote rendering specifically
     }
 
     async init() {
@@ -67,13 +68,17 @@ class App {
         // Subscribe to settings changes
         settingsManager.onChange((settings) => this._applySettings(settings));
 
-        // Init audio player for TTS
+        // Init audio players for TTS (Rust WASAPI render to chosen device).
         audioPlayer.init();
-        audioPlayer.onPlaybackStateChange = (isActive) => {
-            this._isTTSPlaying = isActive;
-        };
+        remoteAudioPlayer.init();
 
-        // Wire TTS audio callbacks for providers that use audioPlayer
+        // Either player being active means "TTS is playing" → drop mic audio to
+        // suppress the echo loop (call app mic would otherwise pick TTS up).
+        audioPlayer.onPlaybackStateChange = (isActive) => this._syncTTSEchoFlag();
+        remoteAudioPlayer.onPlaybackStateChange = (isActive) => this._syncTTSEchoFlag();
+
+        // Wire TTS audio callbacks for providers that use the global audioPlayer
+        // (one-way mode). Two-way mode routes per-call (see _speakTwoWayIfEnabled).
         for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS]) {
             tts.onAudioChunk = (base64Audio, isFinal) => {
                 audioPlayer.enqueue(base64Audio);
@@ -372,6 +377,29 @@ class App {
             this._toggleTwoWayTTS('me_to_remote');
         });
 
+        // Two-way TTS output device dropdowns (WASAPI render endpoints)
+        document.getElementById('select-tts-read-to-me-device')?.addEventListener('change', async (e) => {
+            const deviceValue = e.target.value;
+            await settingsManager.save({ tts_read_to_me_device: deviceValue });
+            audioPlayer.setOutputDevice(deviceValue);
+            console.log('[App] Read-to-me device:', deviceValue);
+        });
+
+        document.getElementById('select-tts-send-to-remote-device')?.addEventListener('change', async (e) => {
+            const deviceValue = e.target.value;
+            await settingsManager.save({ tts_send_to_remote_device: deviceValue });
+            remoteAudioPlayer.setOutputDevice(deviceValue);
+            console.log('[App] Send-to-remote device:', deviceValue);
+        });
+
+        // Two-way microphone input device (cpal device name). Only affects the
+        // next capture start — a running capture keeps its current device.
+        document.getElementById('select-mic-device')?.addEventListener('change', async (e) => {
+            const deviceValue = e.target.value;
+            await settingsManager.save({ microphone_device: deviceValue });
+            console.log('[App] Microphone device saved:', deviceValue);
+        });
+
         // Wire Soniox callbacks
         sonioxClient.onOriginal = (text, speaker) => {
             this.transcriptUI.addOriginal(text, speaker);
@@ -626,6 +654,11 @@ class App {
         settings.google_tts_voice = document.getElementById('select-google-voice')?.value || 'vi-VN-Chirp3-HD-Aoede';
         settings.google_tts_speed = parseFloat(document.getElementById('range-google-speed')?.value || 1.0);
         settings.tts_enabled = false;
+        // Two-way TTS output devices (WASAPI render endpoints)
+        settings.tts_read_to_me_device = document.getElementById('select-tts-read-to-me-device')?.value || 'default';
+        settings.tts_send_to_remote_device = document.getElementById('select-tts-send-to-remote-device')?.value || 'default';
+        // Two-way microphone input device (cpal device name; 'default' = OS default)
+        settings.microphone_device = document.getElementById('select-mic-device')?.value || 'default';
 
         try {
             await settingsManager.save(settings);
@@ -667,6 +700,72 @@ class App {
         // TTS is always OFF on app start — user must toggle on each session
         this.ttsEnabled = false;
         this._updateTTSButton();
+
+        // Apply per-device TTS output routing (read-to-me / send-to-remote).
+        if (settings.tts_read_to_me_device && settings.tts_read_to_me_device !== 'default') {
+            audioPlayer.setOutputDevice(settings.tts_read_to_me_device);
+        }
+        if (settings.tts_send_to_remote_device && settings.tts_send_to_remote_device !== 'default') {
+            remoteAudioPlayer.setOutputDevice(settings.tts_send_to_remote_device);
+        }
+
+        // Populate the device dropdowns from the OS (async, fire-and-forget).
+        this._populateDeviceDropdown('select-tts-read-to-me-device', settings.tts_read_to_me_device || 'default');
+        this._populateDeviceDropdown('select-tts-send-to-remote-device', settings.tts_send_to_remote_device || 'default');
+        this._populateMicrophoneDropdown(settings.microphone_device || 'default');
+    }
+
+    /**
+     * Populate a TTS output-device dropdown from list_audio_devices.
+     */
+    async _populateDeviceDropdown(selectId, currentId) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+
+        const keepDefault = () => {
+            // Preserve the static "System Default" option that ships in the HTML.
+            while (select.options.length > 1) select.remove(1);
+        };
+
+        try {
+            const devices = await invoke('list_audio_devices');
+            keepDefault();
+            if (!Array.isArray(devices) || devices.length === 0) return;
+            for (const dev of devices) {
+                const opt = document.createElement('option');
+                opt.value = dev.id;
+                opt.textContent = dev.name + (dev.is_default ? '  (default)' : '');
+                select.appendChild(opt);
+            }
+            if (currentId && currentId !== 'default') select.value = currentId;
+        } catch (err) {
+            console.warn('[App] list_audio_devices failed:', err);
+            keepDefault();
+        }
+    }
+
+    /**
+     * Populate a microphone input dropdown from active Windows capture endpoints.
+     */
+    async _populateMicrophoneDropdown(currentName) {
+        const select = document.getElementById('select-mic-device');
+        if (!select) return;
+
+        while (select.options.length > 1) select.remove(1);
+        try {
+            const devices = await invoke('list_microphone_devices');
+            if (!Array.isArray(devices)) return;
+            for (const dev of devices) {
+                const opt = document.createElement('option');
+                // cpal resolves input devices by their friendly name.
+                opt.value = dev.name;
+                opt.textContent = dev.name + (dev.is_default ? '  (default)' : '');
+                select.appendChild(opt);
+            }
+            if (currentName && currentName !== 'default') select.value = currentName;
+        } catch (err) {
+            console.warn('[App] list_microphone_devices failed:', err);
+        }
     }
 
     // ─── TTS Control ──────────────────────────────────────
@@ -719,9 +818,11 @@ class App {
         if ((this.ttsRemoteToMeEnabled || this.ttsMeToRemoteEnabled) && this.isRunning) {
             edgeTTSRust.connect();
             audioPlayer.resume();
+            remoteAudioPlayer.resume();
         } else if (!this.ttsRemoteToMeEnabled && !this.ttsMeToRemoteEnabled) {
             edgeTTSRust.disconnect();
             audioPlayer.stop();
+            remoteAudioPlayer.stop();
         }
 
         this._updateTwoWayTTSButtons();
@@ -1018,8 +1119,10 @@ class App {
             };
 
             micChannel.onmessage = (pcmData) => {
-                // Drop mic audio while TTS is playing to prevent echo loop
-                if (this._isTTSPlaying) return;
+                // Only suppress mic audio while the send-to-remote player is
+                // rendering into the call route. Read-to-me TTS goes to the
+                // user's headphones and must not silence their own speech.
+                if (this._isRemoteTTSPlaying) return;
                 micChunkCount++;
                 if (micChunkCount <= 3 || micChunkCount % 50 === 0) {
                     console.log(`[Two-way/Mic] Batch #${micChunkCount}, size:`, pcmData?.length || 0);
@@ -1028,8 +1131,13 @@ class App {
             };
 
             await invoke('start_system_capture', { channel: systemChannel });
-            await invoke('start_microphone_capture', { channel: micChannel });
-            console.log('[App] Two-way captures started successfully');
+            // Resolve the user's chosen mic device for this capture. 'default'/empty
+            // → OS default input (Rust treats it as the cpal default input device).
+            const micDevice = settings.microphone_device && settings.microphone_device !== 'default'
+                ? settings.microphone_device
+                : null;
+            await invoke('start_microphone_capture', { channel: micChannel, deviceName: micDevice });
+            console.log('[App] Two-way captures started successfully (mic device:', micDevice || 'default', ')');
         } catch (err) {
             console.error('Failed to start two-way audio capture:', err);
             this._showToast(`Two-way audio error: ${err}`, 'error');
@@ -1066,23 +1174,23 @@ class App {
         this.remoteSonioxClient.onError = (error) => this._showToast(`Remote audio: ${error}`, 'error');
 
         this.localSonioxClient.onOriginal = (text, speaker) => {
-            if (this._isTTSPlaying) {
-                console.debug('[Two-way] local onOriginal skipped while TTS playing');
+            if (this._isRemoteTTSPlaying) {
+                console.debug('[Two-way] local onOriginal skipped while send-to-remote TTS plays');
                 return;
             }
             this.transcriptUI.addOriginalForDirection(text, speaker, 'me_to_remote');
         };
         this.localSonioxClient.onTranslation = (text) => {
-            if (this._isTTSPlaying) {
-                console.debug('[Two-way] local onTranslation skipped while TTS playing');
+            if (this._isRemoteTTSPlaying) {
+                console.debug('[Two-way] local onTranslation skipped while send-to-remote TTS plays');
                 return;
             }
             this.transcriptUI.addTranslationForDirection(text, 'me_to_remote');
             this._speakTwoWayIfEnabled(text, otherLanguage, 'me_to_remote');
         };
         this.localSonioxClient.onProvisional = (text, speaker) => {
-            if (this._isTTSPlaying) {
-                console.debug('[Two-way] local onProvisional skipped while TTS playing');
+            if (this._isRemoteTTSPlaying) {
+                console.debug('[Two-way] local onProvisional skipped while send-to-remote TTS plays');
                 return;
             }
             if (text) this.transcriptUI.setProvisionalForDirection(text, speaker, 'me_to_remote');
@@ -1105,8 +1213,32 @@ class App {
             speed: settingsManager.get().edge_tts_speed !== undefined ? settingsManager.get().edge_tts_speed : 20,
         });
         edgeTTSRust.connect();
-        audioPlayer.resume();
-        edgeTTSRust.speak(text);
+
+        // Route the MP3 to the right output device per direction:
+        //   - me_to_remote  → remoteAudioPlayer (CABLE Input → call app mic → other person)
+        //   - remote_to_me  → audioPlayer (user's real headphones)
+        if (direction === 'me_to_remote') {
+            const player = remoteAudioPlayer;
+            player.resume();
+            edgeTTSRust.speak(text, (base64Audio) => player.enqueue(base64Audio));
+        } else {
+            audioPlayer.resume();
+            edgeTTSRust.speak(text, (base64Audio) => audioPlayer.enqueue(base64Audio));
+        }
+    }
+
+    /**
+     * Re-derive the TTS echo-suppression flags from both players' states.
+     * `_isTTSPlaying` = any TTS rendering (kept for general gating elsewhere).
+     * `_isRemoteTTSPlaying` = only the send-to-remote player, whose output
+     *   feeds CABLE Input and is picked up by CABLE Output (the mic source).
+     *   We drop mic audio + local-side callbacks only while THIS flag is set,
+     *   because only send-to-remote TTS can loop back into the mic capture.
+     *   Read-to-me TTS goes to the user's real headphones and does not echo.
+     */
+    _syncTTSEchoFlag() {
+        this._isTTSPlaying = audioPlayer.isActive || remoteAudioPlayer.isActive;
+        this._isRemoteTTSPlaying = remoteAudioPlayer.isActive;
     }
 
     async _startLocalMode(settings) {
@@ -1403,6 +1535,7 @@ class App {
             this.localSonioxClient = null;
             edgeTTSRust.disconnect();
             audioPlayer.stop();
+            remoteAudioPlayer.stop();
             this._updateStatus('disconnected');
         } else {
             // Disconnect Soniox
@@ -1419,6 +1552,7 @@ class App {
         edgeTTSRust.disconnect();
 
         audioPlayer.stop();
+        remoteAudioPlayer.stop();
 
         // Auto-save on stop (safety net)
         if (this.transcriptUI.hasSegments()) {

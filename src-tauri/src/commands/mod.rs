@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod audio_devices;
 pub mod edge_tts;
 pub mod local_pipeline;
 pub mod settings;

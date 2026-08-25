@@ -74,6 +74,14 @@ pub struct Settings {
     pub google_tts_voice: String,
     /// Google TTS speaking rate
     pub google_tts_speed: f64,
+    /// Microphone input device name for two-way capture; empty/'default' uses the OS default.
+    pub microphone_device: String,
+    /// TTS output device for read-to-me (remote→me): the user's real headphones.
+    /// 'default' or a WASAPI render endpoint id from list_audio_devices.
+    pub tts_read_to_me_device: String,
+    /// TTS output device for send-to-remote (me→remote): typically CABLE Input,
+    /// so the call app's mic (CABLE Output) picks it up for the other person.
+    pub tts_send_to_remote_device: String,
 }
 
 impl Default for Settings {
@@ -105,6 +113,9 @@ impl Default for Settings {
             google_tts_api_key: String::new(),
             google_tts_voice: "vi-VN-Chirp3-HD-Aoede".to_string(),
             google_tts_speed: 1.0,
+            tts_read_to_me_device: "default".to_string(),
+            tts_send_to_remote_device: "default".to_string(),
+            microphone_device: String::new(),
         }
     }
 }

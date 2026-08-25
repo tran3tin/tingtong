@@ -6,6 +6,9 @@ pub mod system_audio;
 #[cfg(target_os = "windows")]
 pub mod wasapi;
 
+#[cfg(target_os = "windows")]
+pub mod playback;
+
 // Re-export SystemAudioCapture from the correct platform module
 #[cfg(target_os = "macos")]
 pub use system_audio::SystemAudioCapture;

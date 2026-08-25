@@ -30,7 +30,9 @@ impl MicCapture {
 
     /// Start capturing from the microphone.
     /// Returns a receiver that yields PCM s16le 16kHz mono audio chunks.
-    pub fn start(&mut self) -> Result<mpsc::Receiver<Vec<u8>>, String> {
+    /// If `device_name` is empty or "default", captures from the OS default
+    /// input device. Otherwise finds the cpal input device whose name matches.
+    pub fn start(&mut self, device_name: Option<String>) -> Result<mpsc::Receiver<Vec<u8>>, String> {
         if self.is_capturing.load(Ordering::SeqCst) {
             return Err("Already capturing".to_string());
         }
@@ -47,9 +49,20 @@ impl MicCapture {
             return Err("No microphone found. Connect an external microphone or headset.".to_string());
         }
 
-        let device = host
-            .default_input_device()
-            .ok_or("No default microphone found. Connect an external microphone or headset.")?;
+        // Resolve the target device: by name if specified, else OS default.
+        let wanted = device_name.unwrap_or_default();
+        let device = if !wanted.is_empty() && !wanted.eq_ignore_ascii_case("default") {
+            host.input_devices()
+                .map_err(|e| format!("Enumerate input devices: {}", e))?
+                .find(|d| d.name().ok().as_deref() == Some(wanted.as_str()))
+                .ok_or_else(|| format!(
+                    "Microphone device '{}' not found. Available: {:?}",
+                    wanted, input_devices
+                ))?
+        } else {
+            host.default_input_device()
+                .ok_or("No default microphone found. Connect an external microphone or headset.")?
+        };
 
         println!("[Mic] Device: {:?}", device.name().unwrap_or_default());
 

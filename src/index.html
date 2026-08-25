@@ -282,7 +282,14 @@
             <input type="checkbox" id="check-two-way-mute-original-mic" />
             <span class="checkbox-label">Mute original mic route</span>
           </label>
-          <p class="hint warning-hint">Use headphones to avoid echo. To let the other person hear translation, install VB-Audio Virtual Cable, select CABLE Input as the TTS output, then choose CABLE Output as the microphone in Zoom/Meet/Discord/call app.</p>
+          <div class="field" style="margin-top: 10px;">
+            <span class="field-label">Microphone (my voice)</span>
+            <select id="select-mic-device">
+              <option value="default">System Default</option>
+            </select>
+            <p class="hint">In a VB-Cable call setup, Windows default recording is often CABLE Output — pick your real headset mic here so your own speech is transcribed.</p>
+          </div>
+          <p class="hint warning-hint">Use headphones to avoid echo. To let the other person hear your translation, install VB-Audio Virtual Cable, then in the TTS tab set "Send-to-remote → CABLE Input" and in the call app set its microphone to CABLE Output. Set "Read-for-me" to your real headphones so you hear the other person's translation.</p>
         </div>
 
         <div class="settings-section" id="section-one-way-languages">
@@ -576,6 +583,24 @@
               <option value="EXAVITQu4vr4xnSDxMaL">Sarah — Female</option>
               <option value="onwK4e9ZLuTAKqWW03F9">Daniel — Male</option>
               <option value="pNInz6obpgDQGcFmaJgB">Adam — Male</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Two-way call TTS output devices (per-device routing via WASAPI) -->
+        <div class="settings-section" id="tts-output-devices">
+          <span class="field-label">Two-way call TTS output devices</span>
+          <p class="hint">Pick where each translation is played. "Read for me" should be your real headphones; "Send to remote" should be CABLE Input (VB-Audio) so the call app's mic hears it.</p>
+          <div class="field" style="margin-top: 8px;">
+            <span class="field-label">Read-for-me → my headphones</span>
+            <select id="select-tts-read-to-me-device">
+              <option value="default">System Default</option>
+            </select>
+          </div>
+          <div class="field" style="margin-top: 8px;">
+            <span class="field-label">Send-to-remote → CABLE Input</span>
+            <select id="select-tts-send-to-remote-device">
+              <option value="default">System Default</option>
             </select>
           </div>
         </div>

@@ -29,6 +29,13 @@ const DEFAULT_SETTINGS = {
   edge_tts_voice: 'vi-VN-HoaiMyNeural',
   edge_tts_speed: 50,
   tts_auto_read: true,
+  // TTS output devices (WASAPI render endpoint ids; 'default' = system default render)
+  tts_read_to_me_device: 'default',   // remote→me → user's real headphones
+  tts_send_to_remote_device: 'default', // me→remote → CABLE Input (call app mic = CABLE Output)
+  // Microphone input device for two-way capture (cpal device name; 'default' = OS default input).
+  // Defaults to OS default. In a VB-Cable call setup the OS default recording is often
+  // CABLE Output, so the user should pick their real headset mic here instead.
+  microphone_device: 'default',
 };
 
 class SettingsManager {

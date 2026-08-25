@@ -53,6 +53,9 @@ pub fn run() {
             commands::local_pipeline::check_mlx_setup,
             commands::local_pipeline::run_mlx_setup,
             commands::edge_tts::edge_tts_speak,
+            commands::audio_devices::list_audio_devices,
+            commands::audio_devices::list_microphone_devices,
+            audio::playback::play_tts_audio,
             get_platform_info,
         ])
         .run(tauri::generate_context!())

@@ -43,7 +43,7 @@ pub fn start_capture(
 
     match source.as_str() {
         "system" => start_system_capture(channel, state),
-        "microphone" => start_microphone_capture(channel, state),
+        "microphone" => start_microphone_capture(channel, None, state),
         _ => Err(format!("Unknown source: {}", source)),
     }
 }
@@ -69,16 +69,18 @@ pub fn start_system_capture(
 }
 
 /// Start microphone capture without stopping system audio capture.
+/// `device_name`: empty/"default" → OS default input; otherwise the cpal device name.
 #[tauri::command]
 pub fn start_microphone_capture(
     channel: Channel<Vec<u8>>,
+    device_name: Option<String>,
     state: State<'_, AudioState>,
 ) -> Result<(), String> {
     stop_microphone_capture_inner(&state);
 
     let receiver = {
         let mut mic = state.microphone.lock().map_err(|e| e.to_string())?;
-        mic.start()?
+        mic.start(device_name)?
     };
 
     let forwarder = spawn_forwarder(receiver, channel);

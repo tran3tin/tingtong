@@ -15,7 +15,7 @@ class EdgeTTSRust {
         this._isSpeaking = false;
 
         // Same callback interface as other TTS providers
-        this.onAudioChunk = null;
+        this.onAudioChunk = null;  // global fallback (one-way mode → audioPlayer)
         this.onError = null;
         this.onStatusChange = null;
     }
@@ -31,9 +31,9 @@ class EdgeTTSRust {
         console.log('[Edge TTS] Ready via Rust proxy');
     }
 
-    speak(text) {
+    speak(text, onChunk) {
         if (!text?.trim()) return;
-        this._queue.push(text.trim());
+        this._queue.push({ text: text.trim(), onChunk });
         if (!this._isSpeaking) {
             this._processQueue();
         }
@@ -46,7 +46,9 @@ class EdgeTTSRust {
         }
 
         this._isSpeaking = true;
-        const text = this._queue.shift();
+        const item = this._queue.shift();
+        const text = item.text;
+        const onChunk = item.onChunk;
         const startTime = performance.now();
 
         try {
@@ -59,7 +61,11 @@ class EdgeTTSRust {
             const elapsed = performance.now() - startTime;
             console.log(`[Edge TTS] Audio received in ${elapsed.toFixed(0)}ms`);
 
-            if (this.onAudioChunk) {
+            // Per-call callback wins (used in two-way mode to route to a specific
+            // player); otherwise fall back to the global onAudioChunk (one-way mode).
+            if (onChunk) {
+                onChunk(base64Audio, true);
+            } else if (this.onAudioChunk) {
                 this.onAudioChunk(base64Audio, true);
             }
         } catch (err) {
