@@ -76,10 +76,6 @@ const TRANSLATIONS = {
     checkbox_mute_mic:      { vi: 'Tắt tiếng micro gốc',             en: 'Mute original mic route',          fr: 'Couper le micro d\'origine' },
     checkbox_send_voice:    { vi: 'Gửi giọng gốc của tôi cho người kia (họ nghe giọng tôi + bản dịch)', en: 'Send my original voice to the other person (they hear my voice + translation)', fr: 'Envoyer ma voix à l\'autre (il entend ma voix + traduction)' },
     checkbox_play_voice:    { vi: 'Phát giọng gốc người kia cho tôi (tôi nghe giọng họ + bản dịch)', en: 'Play other person\'s original voice to me (I hear their voice + translation)', fr: 'Jouer la voix de l\'autre pour moi (j\'entends sa voix + traduction)' },
-    field_audio_routing:    { vi: 'Định tuyến âm thanh hai chiều',   en: 'Two-way audio routing',            fr: 'Routage audio bidirectionnel' },
-    opt_vb_cable:           { vi: 'Dùng VB-Cable',                   en: 'Use VB-Cable',                     fr: 'Utiliser VB-Cable' },
-    opt_no_vb_cable:        { vi: 'Không dùng VB-Cable',            en: 'No Use VB-Cable',                  fr: 'Sans VB-Cable' },
-    hint_audio_mode:        { vi: 'Dùng VB-Cable là phương thức hiện tại. Không dùng VB-Cable đang phát triển.', en: 'Use VB-Cable is the current implementation. No Use VB-Cable is under development.', fr: 'VB-Cable est l\'implémentation actuelle. Sans VB-Cable est en développement.' },
     field_mic:              { vi: 'Micro (giọng tôi)',               en: 'Microphone (my voice)',            fr: 'Microphone (ma voix)' },
     option_default:         { vi: 'Mặc định hệ thống',               en: 'System Default',                   fr: 'Par défaut' },
     hint_mic_vb:            { vi: 'Trong thiết lập VB-Cable, ghi âm mặc định của Windows thường là CABLE Output — hãy chọn mic tai nghe thật của bạn ở đây để giọng nói được nhận dạng chính xác.', en: 'In a VB-Cable call setup, Windows default recording is often CABLE Output — pick your real headset mic here.', fr: 'Dans une configuration VB-Cable, l\'enregistrement par défaut Windows est souvent CABLE Output — choisissez votre vrai micro ici.' },
@@ -159,7 +155,6 @@ const TRANSLATIONS = {
     toast_source_mic:       { vi: 'Nguồn: Micro',                    en: 'Source: Microphone',              fr: 'Source: Microphone' },
     toast_need_soniox_key:  { vi: 'Cần khóa API Soniox. Thêm trong Cài đặt.', en: 'Soniox API key is required. Add it in Settings.', fr: 'Clé API Soniox requise. Ajoutez-la dans Paramètres.' },
     toast_missing_elevenlabs:{ vi: 'TTS đang BẬT nhưng thiếu khóa API ElevenLabs. Thêm trong Cài đặt hoặc tắt TTS.', en: 'TTS is ON but ElevenLabs API key is missing. Add it in Settings or disable TTS.', fr: 'TTS ACTIVÉ mais clé API ElevenLabs manquante. Ajoutez-la dans Paramètres ou désactivez TTS.' },
-    toast_no_vb_cable:      { vi: 'Không dùng VB-Cable đang phát triển.', en: 'No Use VB-Cable is under development.', fr: 'Sans VB-Cable est en développement.' },
     toast_audio_error:      { vi: 'Lỗi âm thanh: ',                 en: 'Audio error: ',                   fr: 'Erreur audio: ' },
     toast_two_way_error:    { vi: 'Lỗi âm thanh hai chiều: ',       en: 'Two-way audio error: ',           fr: 'Erreur audio bidirectionnelle: ' },
     toast_remote_audio:     { vi: 'Âm thanh từ xa: ',               en: 'Remote audio: ',                  fr: 'Audio distant: ' },
@@ -307,10 +302,8 @@ class I18n {
         this._setTextBySelector('#check-send-original-voice + .checkbox-label', 'checkbox_send_voice');
         this._setTextBySelector('#check-play-original-voice + .checkbox-label', 'checkbox_play_voice');
 
-        // Audio routing
-        this._setTextBySelector('#section-two-way-languages .field:nth-child(6) .field-label', 'field_audio_routing');
-        this._setText('hint-two-way-audio-mode', 'hint_audio_mode');
-        this._setTextBySelector('#section-two-way-languages .field:nth-child(7) .field-label', 'field_mic');
+        // Mic field
+        this._setTextBySelector('#section-two-way-languages .field:nth-child(6) .field-label', 'field_mic');
         this._setTextBySelector('#section-two-way-languages .field:nth-child(7) .hint:not(.warning-hint)', 'hint_mic_vb');
         this._setTextBySelector('.warning-hint', 'hint_warning');
 

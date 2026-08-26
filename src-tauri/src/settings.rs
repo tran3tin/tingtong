@@ -34,8 +34,6 @@ pub struct Settings {
     pub my_language: String,
     /// Other party language for two-way mode
     pub other_language: String,
-    /// Two-way audio routing: "vb_cable" (current implementation) or "no_vb_cable" (planned).
-    pub two_way_audio_mode: String,
     /// Two-way: send my original voice to the other person (they hear my voice + translation).
     pub send_original_voice_to_remote: bool,
     /// Two-way: play the other person's original voice to me (I hear their voice + translation).
@@ -106,7 +104,6 @@ impl Default for Settings {
             my_language: "vi".to_string(),
             other_language: "en".to_string(),
             two_way_tts_enabled: true,
-            two_way_audio_mode: "vb_cable".to_string(),
             send_original_voice_to_remote: false,
             play_original_voice_to_me: false,
             two_way_mute_original_mic: false,

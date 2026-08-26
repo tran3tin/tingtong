@@ -20,9 +20,6 @@ const DEFAULT_SETTINGS = {
   my_language: 'vi',
   other_language: 'en',
   two_way_tts_enabled: true,
-  // Two-way audio routing: 'vb_cable' (VB-Audio Virtual Cable, implemented) or
-  // 'no_vb_cable' (planned, under development).
-  two_way_audio_mode: 'vb_cable',
   // Two-way passthrough: mix the original voice into the same endpoint as TTS.
   send_original_voice_to_remote: false, // other person hears my voice + translation
   play_original_voice_to_me: false,     // I hear other person's voice + translation
