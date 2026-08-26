@@ -372,6 +372,9 @@ export class TranscriptUI {
 
             if (seg.status === 'translated' && seg.translation) {
                 html += `<div class="seg-block">`;
+                if (seg.original) {
+                    html += `<div class="seg-original">${this._esc(seg.original)}</div>`;
+                }
                 html += `<div class="seg-translated">${this._esc(seg.translation)}</div>`;
                 html += `</div>`;
             }

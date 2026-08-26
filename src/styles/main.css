@@ -734,11 +734,11 @@ body {
   font-weight: 400;
 }
 
-/* Translated text — primary white */
+/* Translated text — primary white, bold */
 .seg-translated {
   display: block;
   color: var(--transcript-font-color, var(--text-primary));
-  font-weight: 400;
+  font-weight: 700;
 }
 
 /* Original text — smaller, dimmer, above translation */
