@@ -109,6 +109,41 @@ body {
   gap: 6px;
 }
 
+/* Language Switcher */
+.lang-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 2px;
+}
+
+.lang-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.lang-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.lang-btn.active {
+  background: #ffffff;
+  border-color: #cccccc;
+}
+
 /* Icon Buttons */
 .icon-btn {
   display: flex;
@@ -905,7 +940,7 @@ body {
 .settings-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 8px 12px;
   height: var(--control-bar-height);
 }
@@ -915,6 +950,15 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.01em;
+  margin-right: auto;
+}
+
+/* Settings header language switcher */
+.settings-lang {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 6px;
 }
 
 .settings-body {

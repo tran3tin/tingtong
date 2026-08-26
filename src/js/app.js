@@ -11,6 +11,7 @@ import { googleTTS } from './google-tts.js';
 import { edgeTTSRust } from './edge-tts.js';
 import { sonioxTTS } from './soniox-tts.js';
 import { audioPlayer, remoteAudioPlayer } from './audio-player.js';
+import { i18n } from './i18n.js';
 
 const { invoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
@@ -65,6 +66,11 @@ class App {
 
         // Bind keyboard shortcuts
         this._bindKeyboardShortcuts();
+
+        // Apply UI language after DOM is ready
+        const uiLang = settingsManager.get().ui_language || 'vi';
+        i18n.setLanguage(uiLang);
+        this._updateLangButtons(uiLang);
 
         // Subscribe to settings changes
         settingsManager.onChange((settings) => this._applySettings(settings));
@@ -168,6 +174,18 @@ class App {
         // Compact mode button
         document.getElementById('btn-compact').addEventListener('click', () => {
             this._toggleCompact();
+        });
+
+        // Language switcher buttons
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const lang = btn.getAttribute('data-lang');
+                if (!lang) return;
+                i18n.setLanguage(lang);
+                this._updateLangButtons(lang);
+                await settingsManager.save({ ui_language: lang });
+                console.log('[App] UI language set to', lang);
+            });
         });
 
         // View mode toggle (dual panel)
@@ -1165,6 +1183,12 @@ class App {
         const localBtn = document.getElementById('btn-tts-me-to-remote');
         if (remoteBtn) remoteBtn.classList.toggle('active', this.ttsRemoteToMeEnabled);
         if (localBtn) localBtn.classList.toggle('active', this.ttsMeToRemoteEnabled);
+    }
+
+    _updateLangButtons(lang) {
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+        });
     }
 
     _speakIfEnabled(text) {
