@@ -9,6 +9,7 @@ import { sonioxClient, SonioxClient } from './soniox.js';
 import { elevenLabsTTS } from './elevenlabs-tts.js';
 import { googleTTS } from './google-tts.js';
 import { edgeTTSRust } from './edge-tts.js';
+import { sonioxTTS } from './soniox-tts.js';
 import { audioPlayer, remoteAudioPlayer } from './audio-player.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -68,6 +69,12 @@ class App {
         // Subscribe to settings changes
         settingsManager.onChange((settings) => this._applySettings(settings));
 
+        // Pre-load Soniox TTS voices if provider is soniox
+        const ttsProvider = settingsManager.get().tts_provider || 'edge';
+        if (ttsProvider === 'soniox') {
+            this._loadSonioxVoices();
+        }
+
         // Init audio players for TTS (Rust WASAPI render to chosen device).
         audioPlayer.init();
         remoteAudioPlayer.init();
@@ -79,12 +86,12 @@ class App {
 
         // Wire TTS audio callbacks for providers that use the global audioPlayer
         // (one-way mode). Two-way mode routes per-call (see _speakTwoWayIfEnabled).
-        for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS]) {
+        for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS, sonioxTTS]) {
             tts.onAudioChunk = (base64Audio, isFinal) => {
                 audioPlayer.enqueue(base64Audio);
             };
         }
-        for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS]) {
+        for (const tts of [elevenLabsTTS, edgeTTSRust, googleTTS, sonioxTTS]) {
             tts.onError = (error) => {
                 console.error('[TTS]', error);
                 this._showToast(error, 'error');
@@ -341,6 +348,17 @@ class App {
             this._updateTTSProviderUI(e.target.value);
         });
 
+        // Soniox voice dropdown — reconfigure active TTS immediately so the
+        // selected voice takes effect even before the user clicks "Save".
+        document.getElementById('select-soniox-voice')?.addEventListener('change', (e) => {
+            const saved = settingsManager.get();
+            if (saved.tts_provider === 'soniox') {
+                const tts = this._getActiveTTS();
+                this._configureTTS(tts, { ...saved, soniox_tts_voice: e.target.value });
+                console.log('[App] Soniox voice changed →', e.target.value);
+            }
+        });
+
         // TTS speed slider — show value
         document.getElementById('range-tts-speed')?.addEventListener('input', (e) => {
             const label = document.getElementById('tts-speed-value');
@@ -396,6 +414,49 @@ class App {
             const mode = e.target.value;
             await settingsManager.save({ two_way_audio_mode: mode });
             this._updateTwoWayAudioModeUI(mode);
+        });
+
+        document.getElementById('check-send-original-voice')?.addEventListener('change', async (e) => {
+            const sendToRemote = e.target.checked;
+            await settingsManager.save({ send_original_voice_to_remote: sendToRemote });
+            // Update passthrough live if two-way session is active
+            if (this.isRunning && this.twoWayDirection === 'two_way') {
+                const s = settingsManager.get();
+                try {
+                    await invoke('update_passthrough', {
+                        sendToRemote,
+                        playToMe: s.play_original_voice_to_me,
+                        sendDeviceId: s.tts_send_to_remote_device || 'default',
+                        playDeviceId: s.tts_read_to_me_device || 'default',
+                        micDeviceName: s.microphone_device && s.microphone_device !== 'default' ? s.microphone_device : null,
+                    });
+                    this._showToast(sendToRemote ? 'Gửi giọng gốc ON 🔊' : 'Gửi giọng gốc OFF 🔇', 'success');
+                } catch (err) {
+                    console.error('[App] Failed to update passthrough:', err);
+                    this._showToast(`Lỗi cập nhật passthrough: ${err}`, 'error');
+                }
+            }
+        });
+        document.getElementById('check-play-original-voice')?.addEventListener('change', async (e) => {
+            const playToMe = e.target.checked;
+            await settingsManager.save({ play_original_voice_to_me: playToMe });
+            // Update passthrough live if two-way session is active
+            if (this.isRunning && this.twoWayDirection === 'two_way') {
+                const s = settingsManager.get();
+                try {
+                    await invoke('update_passthrough', {
+                        sendToRemote: s.send_original_voice_to_remote,
+                        playToMe,
+                        sendDeviceId: s.tts_send_to_remote_device || 'default',
+                        playDeviceId: s.tts_read_to_me_device || 'default',
+                        micDeviceName: s.microphone_device && s.microphone_device !== 'default' ? s.microphone_device : null,
+                    });
+                    this._showToast(playToMe ? 'Nghe giọng gốc ON 🔊' : 'Nghe giọng gốc OFF 🔇', 'success');
+                } catch (err) {
+                    console.error('[App] Failed to update passthrough:', err);
+                    this._showToast(`Lỗi cập nhật passthrough: ${err}`, 'error');
+                }
+            }
         });
 
         document.getElementById('select-mic-device')?.addEventListener('change', async (e) => {
@@ -530,6 +591,11 @@ class App {
 
         if (view === 'settings') {
             this._populateSettingsForm();
+            // Load Soniox voices if Soniox is selected
+            const provider = document.getElementById('select-tts-provider')?.value;
+            if (provider === 'soniox') {
+                this._loadSonioxVoices();
+            }
         }
     }
 
@@ -552,6 +618,8 @@ class App {
         this._updateTwoWayAudioModeUI(audioModeSelect?.value || 'vb_cable');
         document.getElementById('check-two-way-tts').checked = s.two_way_tts_enabled !== false;
         document.getElementById('check-two-way-mute-original-mic').checked = !!s.two_way_mute_original_mic;
+        document.getElementById('check-send-original-voice').checked = !!s.send_original_voice_to_remote;
+        document.getElementById('check-play-original-voice').checked = !!s.play_original_voice_to_me;
         this._updateModeUI(s.translation_mode || 'soniox');
         this._updateDirectionUI(direction);
 
@@ -607,6 +675,10 @@ class App {
         if (googleSpeedSlider) googleSpeedSlider.value = googleSpeed;
         if (googleSpeedLabel) googleSpeedLabel.textContent = googleSpeed + 'x';
 
+        // Soniox TTS settings
+        const sonioxVoiceSelect = document.getElementById('select-soniox-voice');
+        if (sonioxVoiceSelect) sonioxVoiceSelect.value = s.soniox_tts_voice || 'Mina';
+
         // TTS provider
         const providerSelect = document.getElementById('select-tts-provider');
         if (providerSelect) {
@@ -625,6 +697,8 @@ class App {
             my_language: document.getElementById('select-my-language')?.value || 'vi',
             other_language: document.getElementById('select-other-language')?.value || 'en',
             two_way_audio_mode: document.getElementById('select-two-way-audio-mode')?.value || 'vb_cable',
+            send_original_voice_to_remote: !!document.getElementById('check-send-original-voice')?.checked,
+            play_original_voice_to_me: !!document.getElementById('check-play-original-voice')?.checked,
             two_way_tts_enabled: document.getElementById('check-two-way-tts')?.checked !== false,
             two_way_mute_original_mic: !!document.getElementById('check-two-way-mute-original-mic')?.checked,
             audio_source: document.querySelector('input[name="audio-source"]:checked')?.value || 'system',
@@ -661,6 +735,7 @@ class App {
         settings.google_tts_api_key = document.getElementById('input-google-tts-key')?.value.trim() || '';
         settings.google_tts_voice = document.getElementById('select-google-voice')?.value || 'vi-VN-Chirp3-HD-Aoede';
         settings.google_tts_speed = parseFloat(document.getElementById('range-google-speed')?.value || 1.0);
+        settings.soniox_tts_voice = document.getElementById('select-soniox-voice')?.value || 'Mina';
         settings.tts_enabled = false;
         // Two-way TTS output devices (WASAPI render endpoints)
         settings.tts_read_to_me_device = document.getElementById('select-tts-read-to-me-device')?.value || 'default';
@@ -793,6 +868,11 @@ class App {
             this._showView('settings');
             return;
         }
+        if (provider === 'soniox' && !settings.soniox_api_key) {
+            this._showToast('Add Soniox API key in Settings → TTS', 'error');
+            this._showView('settings');
+            return;
+        }
 
         this.ttsEnabled = !this.ttsEnabled;
         this._updateTTSButton();
@@ -805,7 +885,7 @@ class App {
                 tts.connect();
                 audioPlayer.resume();
             }
-            const label = { edge: 'Edge TTS (Free)', google: 'Google Chirp 3 HD', elevenlabs: 'ElevenLabs' }[provider] || provider;
+            const label = { edge: 'Edge TTS (Free)', google: 'Google Chirp 3 HD', elevenlabs: 'ElevenLabs', soniox: 'Soniox TTS' }[provider] || provider;
             this._showToast(`TTS narration ON 🔊 (${label})`, 'success');
         } else {
             tts.disconnect();
@@ -841,6 +921,7 @@ class App {
         const provider = settings.tts_provider || 'edge';
         if (provider === 'elevenlabs') return elevenLabsTTS;
         if (provider === 'google') return googleTTS;
+        if (provider === 'soniox') return sonioxTTS;
         return edgeTTSRust;
     }
 
@@ -859,6 +940,11 @@ class App {
                 voice: voice,
                 languageCode: langCode,
                 speakingRate: settings.google_tts_speed || 1.0,
+            });
+        } else if (provider === 'soniox') {
+            tts.configure({
+                voice: settings.soniox_tts_voice || 'Mina',
+                language: settings.my_language || 'vi',
             });
         } else {
             tts.configure({
@@ -884,18 +970,183 @@ class App {
         const ed = document.getElementById('tts-edge-settings');
         const go = document.getElementById('tts-google-settings');
         const el = document.getElementById('tts-elevenlabs-settings');
+        const sn = document.getElementById('tts-soniox-settings');
         if (ed) ed.style.display = provider === 'edge' ? '' : 'none';
         if (go) go.style.display = provider === 'google' ? '' : 'none';
         if (el) el.style.display = provider === 'elevenlabs' ? '' : 'none';
+        if (sn) sn.style.display = provider === 'soniox' ? '' : 'none';
         // Update hint text
         const hint = document.getElementById('tts-provider-hint');
         if (hint) {
             const hints = {
                 edge: 'Free, natural voices — no API key needed',
+                soniox: 'High-quality voices — uses your Soniox API key',
                 google: 'Near-human quality — requires Google Cloud API key (1M chars/month free)',
                 elevenlabs: 'Premium quality — requires ElevenLabs API key',
             };
             hint.textContent = hints[provider] || '';
+        }
+        // Fetch Soniox voices from API when selected
+        if (provider === 'soniox') {
+            this._loadSonioxVoices();
+        }
+    }
+
+    // Translate Soniox voice descriptions to Vietnamese (word-by-word)
+    _translateVoiceDesc(desc) {
+        if (!desc) return '';
+        const map = {
+            // Adjectives
+            'rich': 'trầm',
+            'steady': 'ổn định',
+            'polished': 'tinh tế',
+            'controlled': 'kiểm soát',
+            'reassuring': 'đáng tin cậy',
+            'confident': 'tự tin',
+            'mature': 'trưởng thành',
+            'bright': 'sáng',
+            'expressive': 'truyền cảm',
+            'youthful': 'trẻ trung',
+            'natural': 'tự nhiên',
+            'friendly': 'thân thiện',
+            'warm': 'ấm áp',
+            'engaging': 'hấp dẫn',
+            'bold': 'táo bạo',
+            'clear': 'rõ ràng',
+            'smooth': 'mượt mà',
+            'soft': 'nhẹ nhàng',
+            'deep': 'sâu',
+            'calm': 'bình tĩnh',
+            'energetic': 'năng động',
+            'professional': 'chuyên nghiệp',
+            'gentle': 'nhẹ nhàng',
+            'soothing': 'dịu dàng',
+            'dynamic': 'năng động',
+            'powerful': 'mạnh mẽ',
+            'authoritative': 'uy quyền',
+            'conversational': 'giống nói chuyện',
+            'narration': 'lời dẫn',
+            'narrative': 'kể chuyện',
+            'casual': 'bình thường',
+            'formal': 'trang trọng',
+            'serious': 'nghiêm túc',
+            'playful': 'vui tươi',
+            'cheerful': 'vui vẻ',
+            'optimistic': 'lạc quan',
+            'thoughtful': 'sâu sắc',
+            'sincere': 'chân thành',
+            'kind': 'tốt bụng',
+            'excited': 'hào hứng',
+            'assertive': 'quyết đoán',
+            'dramatic': 'kịch tính',
+            'empathetic': 'thấu hiểu',
+            'encouraging': 'động viên',
+            'enthusiastic': 'nhiệt tình',
+            'graceful': 'duyên dáng',
+            'humorous': 'hài hước',
+            'inquisitive': 'tò mò',
+            'lively': 'sống động',
+            'loving': 'yêu thương',
+            'mellow': 'nhẹ nhàng',
+            'mischievous': 'tinh nghịch',
+            'passionate': 'đam mê',
+            'persuasive': 'thuyết phục',
+            'respectful': 'tôn trọng',
+            'witty': 'hóm hỉnh',
+            'husky': 'khàn',
+            'breathy': 'thở',
+            'airy': 'nhẹ',
+            'sweet': 'ngọt ngào',
+            'full': 'đầy',
+            'resonant': 'vang',
+            'dark': 'tối',
+            'neutral': 'trung tính',
+            'standard': 'chuẩn',
+            // Nouns
+            'voice': 'giọng',
+            'tone': 'giọng',
+            'pacing': 'nhịp độ',
+            'presence': 'sự hiện diện',
+            'rhythm': 'nhịp điệu',
+            'energy': 'năng lượng',
+            'warmth': 'sự ấm áp',
+            'personality': 'cá tính',
+            'style': 'phong cách',
+            'quality': 'chất lượng',
+            // Articles & prepositions
+            'a': 'một',
+            'an': 'một',
+            'the': '',
+            'with': 'với',
+            'and': 'và',
+            'of': 'của',
+            'in': 'trong',
+            'that': '',
+            'which': '',
+            'it': 'nó',
+            'this': 'này',
+            'has': 'có',
+            'is': 'là',
+            'are': 'là',
+            'very': 'rất',
+            'more': 'hơn',
+            'slightly': 'hơi',
+            'rather': 'khá',
+        };
+        let result = desc;
+        // Sort by length desc so longer words match first
+        const sortedKeys = Object.keys(map).sort((a, b) => b.length - a.length);
+        for (const en of sortedKeys) {
+            const regex = new RegExp(`\\b${en}\\b`, 'gi');
+            result = result.replace(regex, map[en]);
+        }
+        // Clean up extra spaces
+        result = result.replace(/\s+/g, ' ').trim();
+        return result;
+    }
+
+    async _loadSonioxVoices() {
+        const select = document.getElementById('select-soniox-voice');
+        if (!select) return;
+        const settings = await settingsManager.get();
+        const savedVoice = settings.soniox_tts_voice || 'Mina';
+        const apiKey = settings.soniox_api_key || '';
+        if (!apiKey) {
+            select.innerHTML = '<option value="Mina">👩 Mina — Nữ</option><option value="Adrian">👨 Adrian — Nam</option>';
+            return;
+        }
+        try {
+            const voices = await sonioxTTS.fetchVoices(apiKey);
+            if (Array.isArray(voices) && voices.length > 0) {
+                // Group voices by gender
+                const male = voices.filter(v => v.gender === 'male');
+                const female = voices.filter(v => v.gender === 'female');
+                const other = voices.filter(v => v.gender !== 'male' && v.gender !== 'female');
+                const all = [...female, ...male, ...other];
+
+                select.innerHTML = '';
+                all.forEach(v => {
+                    const name = v.id || v.name || '';
+                    const gender = v.gender || '';
+                    const desc = v.description || '';
+                    const icon = gender === 'female' ? '👩' : gender === 'male' ? '👨' : '🎤';
+                    const genderVN = gender === 'female' ? 'Nữ' : gender === 'male' ? 'Nam' : '';
+                    const shortDesc = desc.length > 60 ? desc.substring(0, 60) + '...' : desc;
+                    const viDesc = this._translateVoiceDesc(shortDesc);
+                    const label = viDesc ? `${name} — ${viDesc}` : genderVN ? `${name} — ${genderVN}` : name;
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = `${icon} ${label}`;
+                    opt.title = desc;
+                    if (name === savedVoice) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } else {
+                select.innerHTML = '<option value="Mina">👩 Mina — Nữ</option><option value="Adrian">👨 Adrian — Nam</option>';
+            }
+        } catch (err) {
+            console.error('[App] Failed to load Soniox voices:', err);
+            select.innerHTML = '<option value="Mina">👩 Mina — Nữ</option><option value="Adrian">👨 Adrian — Nam</option>';
         }
     }
 
@@ -1003,14 +1254,17 @@ class App {
     }
 
     /**
-     * Show the VB-Cable-only fields (mic selector + warning) only for the
-     * "Use VB-Cable" routing mode. "No Use VB-Cable" is under development.
+     * Show the VB-Cable-only fields (mic selector, passthrough toggles, warning)
+     * only for the "Use VB-Cable" routing mode. "No Use VB-Cable" is under development.
      */
     _updateTwoWayAudioModeUI(mode) {
         const isVBCable = mode !== 'no_vb_cable';
         const micField = document.getElementById('select-mic-device')?.closest('.field');
         const warningHint = document.querySelector('#section-two-way-languages .warning-hint');
         const modeHint = document.getElementById('hint-two-way-audio-mode');
+        document.querySelectorAll('#section-two-way-languages .vb-cable-only').forEach((el) => {
+            el.style.display = isVBCable ? '' : 'none';
+        });
         if (micField) micField.style.display = isVBCable ? '' : 'none';
         if (warningHint) warningHint.style.display = isVBCable ? '' : 'none';
         if (modeHint) {
@@ -1149,6 +1403,12 @@ class App {
             let micChunkCount = 0;
 
             systemChannel.onmessage = (pcmData) => {
+                // While the send-to-remote player renders our translation into
+                // CABLE Input, the system loopback picks that TTS back up. Drop it
+                // so the remote Soniox client doesn't re-transcribe our own TTS
+                // (which would otherwise loop: you say vi → TTS en → captured →
+                // translated again → more TTS).
+                if (this._isRemoteTTSPlaying) return;
                 systemChunkCount++;
                 if (systemChunkCount <= 3 || systemChunkCount % 50 === 0) {
                     console.log(`[Two-way/System] Batch #${systemChunkCount}, size:`, pcmData?.length || 0);
@@ -1175,6 +1435,25 @@ class App {
                 ? settings.microphone_device
                 : null;
             await invoke('start_microphone_capture', { channel: micChannel, deviceName: micDevice });
+
+            // Optional live passthroughs mix original speech into the same
+            // output endpoints as the translations. They take effect at start;
+            // stop and start the call again after changing these checkboxes.
+            if (settings.send_original_voice_to_remote) {
+                await invoke('start_passthrough', {
+                    source: 'mic',
+                    renderDeviceId: settings.tts_send_to_remote_device || 'default',
+                    deviceName: micDevice,
+                });
+            }
+            if (settings.play_original_voice_to_me) {
+                await invoke('start_passthrough', {
+                    source: 'system',
+                    renderDeviceId: settings.tts_read_to_me_device || 'default',
+                    deviceName: null,
+                });
+            }
+
             console.log('[App] Two-way captures started successfully (mic device:', micDevice || 'default', ')');
         } catch (err) {
             console.error('Failed to start two-way audio capture:', err);
@@ -1246,11 +1525,10 @@ class App {
 
         console.debug('[Two-way] speak', direction, 'len:', text.length);
 
-        edgeTTSRust.configure({
-            voice: EDGE_VOICE_BY_LANG[language] || EDGE_VOICE_BY_LANG.en,
-            speed: settingsManager.get().edge_tts_speed !== undefined ? settingsManager.get().edge_tts_speed : 20,
-        });
-        edgeTTSRust.connect();
+        const tts = this._getActiveTTS();
+        const settings = settingsManager.get();
+        this._configureTTS(tts, settings);
+        tts.connect();
 
         // Route the MP3 to the right output device per direction:
         //   - me_to_remote  → remoteAudioPlayer (CABLE Input → call app mic → other person)
@@ -1258,10 +1536,10 @@ class App {
         if (direction === 'me_to_remote') {
             const player = remoteAudioPlayer;
             player.resume();
-            edgeTTSRust.speak(text, (base64Audio) => player.enqueue(base64Audio));
+            tts.speak(text, (base64Audio) => player.enqueue(base64Audio));
         } else {
             audioPlayer.resume();
-            edgeTTSRust.speak(text, (base64Audio) => audioPlayer.enqueue(base64Audio));
+            tts.speak(text, (base64Audio) => audioPlayer.enqueue(base64Audio));
         }
     }
 
@@ -1562,6 +1840,7 @@ class App {
             this._updateStatus('disconnected');
         } else if (this.twoWayDirection === 'two_way' && (this.remoteSonioxClient || this.localSonioxClient)) {
             try {
+                await invoke('stop_all_passthrough');
                 await invoke('stop_system_capture');
                 await invoke('stop_microphone_capture');
             } catch (err) {

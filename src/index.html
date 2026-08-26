@@ -282,6 +282,14 @@
             <input type="checkbox" id="check-two-way-mute-original-mic" />
             <span class="checkbox-label">Mute original mic route</span>
           </label>
+          <label class="checkbox-option vb-cable-only" style="margin-top: 6px;">
+            <input type="checkbox" id="check-send-original-voice" />
+            <span class="checkbox-label">Send my original voice to the other person (they hear my voice + translation)</span>
+          </label>
+          <label class="checkbox-option vb-cable-only" style="margin-top: 6px;">
+            <input type="checkbox" id="check-play-original-voice" />
+            <span class="checkbox-label">Play other person's original voice to me (I hear their voice + translation)</span>
+          </label>
           <div class="field" style="margin-top: 10px;">
             <span class="field-label">Two-way audio routing</span>
             <select id="select-two-way-audio-mode">
@@ -495,6 +503,7 @@
           <span class="field-label">Provider</span>
           <select id="select-tts-provider">
             <option value="edge">🎙️ Edge TTS — Free</option>
+            <option value="soniox">🎯 Soniox TTS — Premium</option>
             <option value="google">🌐 Google Chirp 3 HD — Premium</option>
             <option value="elevenlabs">✨ ElevenLabs — Premium</option>
           </select>
@@ -519,6 +528,17 @@
             <span class="field-label">Speed</span>
             <input type="range" id="range-edge-speed" min="-50" max="100" step="10" />
             <span id="edge-speed-value" class="range-value"></span>
+          </div>
+        </div>
+
+        <!-- Soniox TTS settings -->
+        <div class="settings-section" id="tts-soniox-settings" style="display:none;">
+          <p class="hint">Uses your Soniox API key (same as transcription)</p>
+          <div class="field">
+            <span class="field-label">Voice</span>
+            <select id="select-soniox-voice">
+              <option value="">Loading voices...</option>
+            </select>
           </div>
         </div>
 

@@ -3,4 +3,5 @@ pub mod audio_devices;
 pub mod edge_tts;
 pub mod local_pipeline;
 pub mod settings;
+pub mod soniox_tts;
 pub mod transcript;

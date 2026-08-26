@@ -36,6 +36,10 @@ pub struct Settings {
     pub other_language: String,
     /// Two-way audio routing: "vb_cable" (current implementation) or "no_vb_cable" (planned).
     pub two_way_audio_mode: String,
+    /// Two-way: send my original voice to the other person (they hear my voice + translation).
+    pub send_original_voice_to_remote: bool,
+    /// Two-way: play the other person's original voice to me (I hear their voice + translation).
+    pub play_original_voice_to_me: bool,
     /// Whether two-way TTS is enabled
     pub two_way_tts_enabled: bool,
     /// Whether to mute original mic route in two-way mode (reserved for later)
@@ -103,6 +107,8 @@ impl Default for Settings {
             other_language: "en".to_string(),
             two_way_tts_enabled: true,
             two_way_audio_mode: "vb_cable".to_string(),
+            send_original_voice_to_remote: false,
+            play_original_voice_to_me: false,
             two_way_mute_original_mic: false,
             custom_context: None,
             elevenlabs_api_key: String::new(),

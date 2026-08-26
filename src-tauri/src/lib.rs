@@ -3,6 +3,7 @@ mod commands;
 mod settings;
 
 use audio::microphone::MicCapture;
+use audio::passthrough::AudioPassthrough;
 use audio::SystemAudioCapture;
 use commands::audio::AudioState;
 use commands::local_pipeline::LocalPipelineState;
@@ -31,6 +32,8 @@ pub fn run() {
             microphone: Mutex::new(MicCapture::new()),
             system_forwarder: Mutex::new(None),
             microphone_forwarder: Mutex::new(None),
+            me_to_remote_passthrough: Mutex::new(AudioPassthrough::new()),
+            remote_to_me_passthrough: Mutex::new(AudioPassthrough::new()),
         })
         .manage(LocalPipelineState {
             process: Mutex::new(None),
@@ -44,6 +47,10 @@ pub fn run() {
             commands::audio::stop_capture,
             commands::audio::stop_system_capture,
             commands::audio::stop_microphone_capture,
+            commands::audio::start_passthrough,
+            commands::audio::stop_passthrough,
+            commands::audio::stop_all_passthrough,
+            commands::audio::update_passthrough,
             commands::audio::check_permissions,
             commands::transcript::save_transcript,
             commands::transcript::open_transcript_dir,
@@ -53,6 +60,8 @@ pub fn run() {
             commands::local_pipeline::check_mlx_setup,
             commands::local_pipeline::run_mlx_setup,
             commands::edge_tts::edge_tts_speak,
+            commands::soniox_tts::soniox_tts_speak,
+            commands::soniox_tts::soniox_tts_models,
             commands::audio_devices::list_audio_devices,
             commands::audio_devices::list_microphone_devices,
             audio::playback::play_tts_audio,

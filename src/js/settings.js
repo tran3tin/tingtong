@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS = {
   // Two-way audio routing: 'vb_cable' (VB-Audio Virtual Cable, implemented) or
   // 'no_vb_cable' (planned, under development).
   two_way_audio_mode: 'vb_cable',
+  // Two-way passthrough: mix the original voice into the same endpoint as TTS.
+  send_original_voice_to_remote: false, // other person hears my voice + translation
+  play_original_voice_to_me: false,     // I hear other person's voice + translation
   two_way_mute_original_mic: false,
   custom_context: null,
   elevenlabs_api_key: '',
@@ -32,6 +35,8 @@ const DEFAULT_SETTINGS = {
   edge_tts_voice: 'vi-VN-HoaiMyNeural',
   edge_tts_speed: 50,
   tts_auto_read: true,
+  // Soniox TTS settings
+  soniox_tts_voice: 'Mina',
   // TTS output devices (WASAPI render endpoint ids; 'default' = system default render)
   tts_read_to_me_device: 'default',   // remote→me → user's real headphones
   tts_send_to_remote_device: 'default', // me→remote → CABLE Input (call app mic = CABLE Output)

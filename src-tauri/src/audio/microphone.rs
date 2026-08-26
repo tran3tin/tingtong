@@ -1,6 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::TARGET_SAMPLE_RATE;
@@ -13,6 +14,14 @@ pub struct MicCapture {
     /// cpal::Stream is !Send, so can't move to another thread.
     /// Using Box<dyn StreamTrait> to erase the concrete type.
     _stream: Option<cpal::Stream>,
+    /// Optional live tap: raw f32 frames (native rate/channels) are forwarded
+    /// here in addition to the Soniox s16le path. Used by the me→remote
+    /// passthrough so we DON'T open a second capture stream on the same device
+    /// (Bluetooth hands-free mics allow only one capture stream; a second open
+    /// fails or yields silence).
+    tap_slot: Arc<Mutex<Option<mpsc::SyncSender<Vec<f32>>>>>,
+    tap_rate: u32,
+    tap_channels: u16,
 }
 
 // SAFETY: MicCapture is only accessed through Mutex in AudioState,
@@ -25,7 +34,30 @@ impl MicCapture {
         Self {
             is_capturing: Arc::new(AtomicBool::new(false)),
             _stream: None,
+            tap_slot: Arc::new(Mutex::new(None)),
+            tap_rate: 16000,
+            tap_channels: 1,
         }
+    }
+
+    /// Install a live tap that receives raw f32 frames (native rate/channels)
+    /// from the active capture stream. Replaces any previous tap.
+    pub fn install_tap(&self, sender: mpsc::SyncSender<Vec<f32>>) {
+        if let Ok(mut slot) = self.tap_slot.lock() {
+            *slot = Some(sender);
+        }
+    }
+
+    /// Remove the live tap (e.g. when the passthrough stops).
+    pub fn clear_tap(&self) {
+        if let Ok(mut slot) = self.tap_slot.lock() {
+            *slot = None;
+        }
+    }
+
+    /// (rate, channels) of the frames delivered to the tap.
+    pub fn tap_format(&self) -> (u32, u16) {
+        (self.tap_rate, self.tap_channels)
     }
 
     /// Start capturing from the microphone.
@@ -101,9 +133,13 @@ impl MicCapture {
         let source_sample_rate = default_config.sample_rate().0;
         let source_channels = default_config.channels() as usize;
 
+        self.tap_rate = source_sample_rate;
+        self.tap_channels = default_config.channels();
+
         let (sender, receiver) = mpsc::channel::<Vec<u8>>();
         self.is_capturing.store(true, Ordering::SeqCst);
         let is_capturing = self.is_capturing.clone();
+        let tap_slot = self.tap_slot.clone();
 
         // Build the input config targeting our desired format
         let stream_config = cpal::StreamConfig {
@@ -122,6 +158,13 @@ impl MicCapture {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         if !is_capturing.load(Ordering::SeqCst) {
                             return;
+                        }
+                        // Live tap for passthrough (raw f32 frames).
+                        if let Ok(slot) = tap_slot.lock() {
+                            if let Some(tx) = slot.as_ref() {
+                                // try_send so a slow render loop can't stall capture
+                                let _ = tx.try_send(data.to_vec());
+                            }
                         }
                         let pcm = convert_f32_to_pcm_s16le(
                             data,
@@ -144,6 +187,14 @@ impl MicCapture {
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         if !is_capturing.load(Ordering::SeqCst) {
                             return;
+                        }
+                        // Live tap for passthrough (converted to f32).
+                        if let Ok(slot) = tap_slot.lock() {
+                            if let Some(tx) = slot.as_ref() {
+                                let f: Vec<f32> =
+                                    data.iter().map(|&s| s as f32 / 32768.0).collect();
+                                let _ = tx.try_send(f);
+                            }
                         }
                         let pcm = convert_i16_to_pcm_s16le(
                             data,
@@ -175,6 +226,7 @@ impl MicCapture {
 
     pub fn stop(&mut self) {
         self.is_capturing.store(false, Ordering::SeqCst);
+        self.clear_tap();
         // Drop the stream to stop capturing
         self._stream = None;
     }

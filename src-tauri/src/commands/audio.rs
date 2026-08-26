@@ -1,4 +1,5 @@
 use crate::audio::microphone::MicCapture;
+use crate::audio::passthrough::{AudioPassthrough, PassthroughSource};
 use crate::audio::SystemAudioCapture;
 use serde::Serialize;
 use std::sync::mpsc;
@@ -11,6 +12,10 @@ pub struct AudioState {
     pub microphone: Mutex<MicCapture>,
     pub system_forwarder: Mutex<Option<AudioForwarder>>,
     pub microphone_forwarder: Mutex<Option<AudioForwarder>>,
+    /// Live mic → CABLE Input passthrough (other person hears my original voice).
+    pub me_to_remote_passthrough: Mutex<AudioPassthrough>,
+    /// Live system loopback → headphones passthrough (I hear other person's voice).
+    pub remote_to_me_passthrough: Mutex<AudioPassthrough>,
 }
 
 /// Forwards audio from a receiver to a Tauri IPC channel
@@ -111,6 +116,153 @@ pub fn stop_microphone_capture(state: State<'_, AudioState>) -> Result<(), Strin
     Ok(())
 }
 
+/// Start a live passthrough: capture `source` and render it continuously into
+/// `render_device_id` (the same WASAPI endpoint TTS uses for that direction),
+/// so the endpoint receives a mix of live source + TTS.
+///   - source "mic"    → mic (my voice) → CABLE Input (other person hears my voice)
+///   - source "system" → system loopback → headphones (I hear other person's voice)
+/// No IPC channel is needed; audio goes straight to the WASAPI endpoint.
+///
+/// For "mic": if the MicCapture is already running (two-way mode), we tap its
+/// stream instead of opening a second cpal input. Many Bluetooth hands-free
+/// mics allow only one capture stream; a second open fails or yields silence.
+#[tauri::command]
+pub fn start_passthrough(
+    source: String,
+    render_device_id: String,
+    device_name: Option<String>,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    // Stop the matching instance first, then (re)start it.
+    if source == "mic" {
+        let mut pt = state
+            .me_to_remote_passthrough
+            .lock()
+            .map_err(|e| e.to_string())?;
+        pt.stop();
+
+        let pt_source = {
+            let mic = state.microphone.lock().map_err(|e| e.to_string())?;
+            if mic.is_capturing() {
+                // Tap the running capture instead of a second cpal stream.
+                let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(64);
+                mic.install_tap(tx);
+                let (rate, channels) = mic.tap_format();
+                PassthroughSource::MicTap { receiver: rx, rate, channels }
+            } else {
+                PassthroughSource::Mic { device_name }
+            }
+        };
+        pt.start(pt_source, render_device_id)?;
+    } else if source == "system" {
+        let mut pt = state
+            .remote_to_me_passthrough
+            .lock()
+            .map_err(|e| e.to_string())?;
+        pt.stop();
+        // System loopback source: in the VB-Cable topology the other person's
+        // voice plays to CABLE Input (= Windows default render), so loop back
+        // the default render endpoint. "default"/empty → default render.
+        pt.start(PassthroughSource::System { capture_device_id: "default".to_string() }, render_device_id)?;
+    } else {
+        return Err(format!("Unknown passthrough source: {}", source));
+    }
+    Ok(())
+}
+
+/// Stop the passthrough for the given source ("mic" | "system").
+#[tauri::command]
+pub fn stop_passthrough(source: String, state: State<'_, AudioState>) -> Result<(), String> {
+    stop_passthrough_inner(&source, &state);
+    Ok(())
+}
+
+/// Stop both passthroughs.
+#[tauri::command]
+pub fn stop_all_passthrough(state: State<'_, AudioState>) -> Result<(), String> {
+    stop_all_passthrough_inner(&state);
+    Ok(())
+}
+
+/// Update passthroughs based on current settings (called when checkboxes change mid-session).
+#[tauri::command]
+pub fn update_passthrough(
+    send_to_remote: bool,
+    play_to_me: bool,
+    send_device_id: String,
+    play_device_id: String,
+    mic_device_name: Option<String>,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    // Stop all existing passthroughs first
+    stop_all_passthrough_inner(&state);
+
+    // Start mic → remote passthrough if enabled
+    if send_to_remote {
+        let mut pt = state
+            .me_to_remote_passthrough
+            .lock()
+            .map_err(|e| e.to_string())?;
+
+        let pt_source = {
+            let mic = state.microphone.lock().map_err(|e| e.to_string())?;
+            if mic.is_capturing() {
+                // Tap the running capture instead of a second cpal stream.
+                let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(64);
+                mic.install_tap(tx);
+                let (rate, channels) = mic.tap_format();
+                PassthroughSource::MicTap { receiver: rx, rate, channels }
+            } else {
+                PassthroughSource::Mic { device_name: mic_device_name }
+            }
+        };
+        pt.start(pt_source, send_device_id)?;
+        println!("[Passthrough] Updated: mic → remote (send_to_remote=true)");
+    }
+
+    // Start system loopback → headphones passthrough if enabled
+    if play_to_me {
+        let mut pt = state
+            .remote_to_me_passthrough
+            .lock()
+            .map_err(|e| e.to_string())?;
+        pt.start(
+            PassthroughSource::System { capture_device_id: "default".to_string() },
+            play_device_id,
+        )?;
+        println!("[Passthrough] Updated: system → me (play_to_me=true)");
+    }
+
+    Ok(())
+}
+
+fn stop_passthrough_inner(source: &str, state: &AudioState) {
+    if source == "mic" {
+        if let Ok(mut pt) = state.me_to_remote_passthrough.lock() {
+            pt.stop();
+        }
+        if let Ok(mic) = state.microphone.lock() {
+            mic.clear_tap();
+        }
+    } else if source == "system" {
+        if let Ok(mut pt) = state.remote_to_me_passthrough.lock() {
+            pt.stop();
+        }
+    }
+}
+
+fn stop_all_passthrough_inner(state: &AudioState) {
+    if let Ok(mut pt) = state.me_to_remote_passthrough.lock() {
+        pt.stop();
+    }
+    if let Ok(mic) = state.microphone.lock() {
+        mic.clear_tap();
+    }
+    if let Ok(mut pt) = state.remote_to_me_passthrough.lock() {
+        pt.stop();
+    }
+}
+
 fn spawn_forwarder(receiver: mpsc::Receiver<Vec<u8>>, channel: Channel<Vec<u8>>) -> AudioForwarder {
     let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop_flag_clone = stop_flag.clone();
@@ -155,6 +307,7 @@ fn spawn_forwarder(receiver: mpsc::Receiver<Vec<u8>>, channel: Channel<Vec<u8>>)
 }
 
 fn stop_capture_inner(state: &AudioState) {
+    stop_all_passthrough_inner(state);
     stop_system_capture_inner(state);
     stop_microphone_capture_inner(state);
 }
